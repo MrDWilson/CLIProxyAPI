@@ -543,6 +543,11 @@ func (h *BaseAPIHandler) GetContextWithCancel(handler interfaces.APIHandler, c *
 		}
 	}
 	newCtx, cancel := context.WithCancel(parentCtx)
+	if requestCtx != nil {
+		if key := coreusage.APIKeyFromContext(requestCtx); key != "" {
+			newCtx = coreusage.WithAPIKey(newCtx, key)
+		}
+	}
 
 	endpoint := ""
 	if c != nil && c.Request != nil {

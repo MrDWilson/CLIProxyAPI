@@ -421,6 +421,9 @@ type ResetCreditsConfig struct {
 
 // RoutingConfig configures how credentials are selected for requests.
 type RoutingConfig struct {
+	// Profiles contains the master "default" profile and per-client overrides.
+	Profiles map[string]RoutingProfile `yaml:"profiles,omitempty" json:"profiles,omitempty"`
+
 	// Strategy selects the credential selection strategy.
 	// Supported values: "intelligent-fill" (default), "round-robin", "weighted-round-robin", "fill-first".
 	Strategy string `yaml:"strategy,omitempty" json:"strategy,omitempty"`

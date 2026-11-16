@@ -109,6 +109,9 @@ access:
     - "your-api-key-1"
     - "your-api-key-2"
     - "your-api-key-3"
+  # Optional per-key routing override; unassigned keys use the master default profile.
+  # api-key-profiles:
+  #   "your-api-key-2": secondary
 
 # Optional credential concurrency and observation contracts.
 
@@ -165,6 +168,16 @@ access:
 
 # Routing strategy for selecting credentials when multiple match.
 routing:
+  # Optional master and per-key policy overlays (see docs/routing-profiles.md).
+  # profiles:
+  #   default:
+  #     auths:
+  #       account1.json: {priority: 40}
+  #   secondary:
+  #     allowed-auths: [account1.json, account4.json]
+  #     excluded-models: ["blocked-model-*"]
+  #     auths:
+  #       account4.json: {priority: 90}
   strategy: "intelligent-fill" # intelligent-fill (default), round-robin, weighted-round-robin, fill-first
   # intelligent-fill sends traffic to the subscription whose weekly window resets soonest, skipping
   # exhausted ones, and polls the usage endpoints of OAuth credentials to rank them. Credentials

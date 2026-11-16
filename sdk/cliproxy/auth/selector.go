@@ -1135,6 +1135,7 @@ func (s *SessionAffinitySelector) Pick(ctx context.Context, provider, model stri
 	fallbackAuths := highestPriorityAuths(available)
 
 	modelKey := canonicalModelKey(model)
+	modelKey = routingAffinityModelKey(modelKey, opts.Metadata)
 	cacheKey := provider + "::" + primaryID + "::" + modelKey
 	isFork := false
 	if opts.Metadata != nil {
@@ -1389,6 +1390,9 @@ func lcpAffinityNamespace(provider, model string, metadata map[string]any) strin
 	provider = canonicalLCPProvider(provider)
 	model = canonicalModelKey(model)
 	callerScope := sessionMetadataString(metadata, cliproxyexecutor.CallerScopeMetadataKey)
+	if scope, _ := metadata[routingProfileScopeMetadataKey].(string); scope != "" {
+		callerScope += ":profile:" + scope
+	}
 	if provider == "" || callerScope == "" {
 		return ""
 	}
@@ -1682,6 +1686,7 @@ func (s *SessionAffinitySelector) OnResult(res Result) {
 		fallbackID = cliproxysession.BoundSessionIdentity(fallbackID)
 	}
 
+	nsModel = routingAffinityModelKey(nsModel, res.Options.Metadata)
 	cacheKey := ns + "::" + primaryID + "::" + nsModel
 	var fallbackKey string
 	if fallbackID != "" && fallbackID != primaryID && !isSubagentSession(primaryID, fallbackID) {

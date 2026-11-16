@@ -1019,6 +1019,27 @@ func (m *Manager) pickViaPluginScheduler(ctx context.Context, scheduler PluginSc
 	if !okStrategy {
 		return nil, false, nil
 	}
+	if m.routingProfile(ctx, opts).active {
+		m.mu.Lock()
+		if m.profileDelegates == nil {
+			m.profileDelegates = make(map[schedulerStrategy]Selector)
+		}
+		selector := m.profileDelegates[strategy]
+		if selector == nil {
+			switch strategy {
+			case schedulerStrategyFillFirst:
+				selector = &FillFirstSelector{}
+			case schedulerStrategyWeightedRoundRobin:
+				selector = &WeightedRoundRobinSelector{}
+			default:
+				selector = &RoundRobinSelector{}
+			}
+			m.profileDelegates[strategy] = selector
+		}
+		m.mu.Unlock()
+		selected, err := selector.Pick(ctx, providerKey, model, opts, candidates)
+		return selected, true, err
+	}
 	return m.pickViaBuiltinScheduler(ctx, strategy, providerKey, providers, model, opts, tried)
 }
 
@@ -1749,6 +1770,7 @@ func (m *Manager) routeAwareSelectionRequired(auth *Auth, routeModel string) boo
 }
 
 func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, tried map[string]struct{}) (*Auth, ProviderExecutor, error) {
+	opts = m.withRoutingProfileMetadata(ctx, opts)
 	if m.HomeEnabled() {
 		auth, exec, _, err := m.pickNextViaHome(ctx, model, opts, tried)
 		return auth, exec, err
@@ -1757,6 +1779,7 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 	opts.EnsureMetadata()
 	opts.Metadata[cliproxyexecutor.SessionAffinityProviderMetadataKey] = provider
 
+	profile := m.routingProfile(ctx, opts)
 	pinnedAuthID := pinnedAuthIDFromMetadata(opts.Metadata)
 	eligibility := authSelectionEligibilityForRequest(ctx, opts)
 
@@ -1797,6 +1820,10 @@ func (m *Manager) pickNextLegacy(ctx context.Context, provider, model string, op
 			continue
 		}
 		if modelKey != "" && !m.authSupportsRouteModel(registryRef, candidate, model) {
+			continue
+		}
+		candidate = m.profileCandidate(profile, candidate, model)
+		if candidate == nil {
 			continue
 		}
 		if trackTransientAffinity {
@@ -2019,6 +2046,7 @@ func (m *Manager) SelectHomeAuthByKind(ctx context.Context, provider string, mod
 }
 
 func (m *Manager) pickNext(ctx context.Context, provider, model string, opts cliproxyexecutor.Options, tried map[string]struct{}) (*Auth, ProviderExecutor, error) {
+	opts = m.withRoutingProfileMetadata(ctx, opts)
 	opts.EnsureMetadata()
 	if m.HomeEnabled() {
 		auth, exec, _, err := m.pickNextViaHome(ctx, model, opts, tried)
@@ -2027,7 +2055,7 @@ func (m *Manager) pickNext(ctx context.Context, provider, model string, opts cli
 	opts.Metadata[cliproxyexecutor.SessionAffinityProviderMetadataKey] = provider
 	opts.Metadata[cliproxyexecutor.SessionAffinityModelMetadataKey] = model
 
-	if m.hasPluginScheduler() || !m.useSchedulerFastPath() {
+	if m.routingProfile(ctx, opts).active || !m.routingProfile(ctx, opts).valid || m.hasPluginScheduler() || !m.useSchedulerFastPath() {
 		return m.pickNextLegacy(ctx, provider, model, opts, tried)
 	}
 	eligibility := authSelectionEligibilityForRequest(ctx, opts)
@@ -2080,6 +2108,7 @@ func (m *Manager) pickNext(ctx context.Context, provider, model string, opts cli
 }
 
 func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, model string, opts cliproxyexecutor.Options, tried map[string]struct{}) (*Auth, ProviderExecutor, string, error) {
+	opts = m.withRoutingProfileMetadata(ctx, opts)
 	if m.HomeEnabled() {
 		return m.pickNextViaHome(ctx, model, opts, tried)
 	}
@@ -2087,6 +2116,7 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 	opts.EnsureMetadata()
 	opts.Metadata[cliproxyexecutor.SessionAffinityProviderMetadataKey] = "mixed"
 
+	profile := m.routingProfile(ctx, opts)
 	pinnedAuthID := pinnedAuthIDFromMetadata(opts.Metadata)
 	eligibility := authSelectionEligibilityForRequest(ctx, opts)
 
@@ -2143,6 +2173,10 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 			continue
 		}
 		if modelKey != "" && !m.authSupportsRouteModel(registryRef, candidate, model) {
+			continue
+		}
+		candidate = m.profileCandidate(profile, candidate, model)
+		if candidate == nil {
 			continue
 		}
 		if trackTransientAffinity {
@@ -2205,6 +2239,7 @@ func (m *Manager) pickNextMixedLegacy(ctx context.Context, providers []string, m
 }
 
 func (m *Manager) pickNextMixed(ctx context.Context, providers []string, model string, opts cliproxyexecutor.Options, tried map[string]struct{}) (*Auth, ProviderExecutor, string, error) {
+	opts = m.withRoutingProfileMetadata(ctx, opts)
 	opts.EnsureMetadata()
 	if m.HomeEnabled() {
 		return m.pickNextViaHome(ctx, model, opts, tried)
@@ -2212,7 +2247,7 @@ func (m *Manager) pickNextMixed(ctx context.Context, providers []string, model s
 	opts.Metadata[cliproxyexecutor.SessionAffinityProviderMetadataKey] = "mixed"
 	opts.Metadata[cliproxyexecutor.SessionAffinityModelMetadataKey] = model
 
-	if m.hasPluginScheduler() || !m.useSchedulerFastPath() {
+	if m.routingProfile(ctx, opts).active || !m.routingProfile(ctx, opts).valid || m.hasPluginScheduler() || !m.useSchedulerFastPath() {
 		return m.pickNextMixedLegacy(ctx, providers, model, opts, tried)
 	}
 
