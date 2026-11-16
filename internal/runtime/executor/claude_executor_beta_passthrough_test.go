@@ -76,7 +76,7 @@ func TestApplyClaudeHeaders_PreservesNativeGatewayHintsOnly(t *testing.T) {
 	}{
 		{name: "confirmed main", requestClass: "main", confirmed: true},
 		{name: "confirmed auxiliary", requestClass: "auxiliary", confirmed: true},
-		{name: "unconfirmed caller", requestClass: "main"},
+		{name: "unconfirmed caller", requestClass: "auxiliary"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			req, err := http.NewRequest(http.MethodPost, "https://api.anthropic.com/v1/messages", nil)
@@ -99,6 +99,14 @@ func TestApplyClaudeHeaders_PreservesNativeGatewayHintsOnly(t *testing.T) {
 				got := req.Header.Get(key)
 				if tt.confirmed && got != values[0] {
 					t.Errorf("%s = %q, want %q", key, got, values[0])
+				}
+				// The cloak derives its own request class for an unconfirmed
+				// caller (a main turn here); every other hint is dropped.
+				if !tt.confirmed && key == "x-claude-code-request-class" {
+					if got != "main" {
+						t.Errorf("unconfirmed caller request class = %q, want derived main", got)
+					}
+					continue
 				}
 				if !tt.confirmed && got != "" {
 					t.Errorf("unconfirmed caller forwarded %s = %q", key, got)

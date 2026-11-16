@@ -1414,9 +1414,14 @@ func applyClaudeHeadersWithNativeProfile(
 	}
 	// Gateway hints are caller-owned software state. Preserve them only for a
 	// confirmed native client; an unconfirmed caller must not spoof its class.
+	// Cloaked requests to the first-party API get the values 2.1.325 sends
+	// instead, see applyClaudeCodeGatewayHints.
 	if confirmedClaudeCode {
 		for _, hdr := range []string{
-			"X-Claude-Code-Request-Class",
+			claudeRequestClassHeader,
+			claude1PRequestClassHeader,
+			claudePromptIDHeader,
+			claudeToolsUsedHeader,
 			"X-Claude-Code-Agent-Type",
 			"X-Claude-Code-Prev-Tool-Durations",
 			"X-Claude-Code-Compaction",
@@ -1426,6 +1431,8 @@ func applyClaudeHeadersWithNativeProfile(
 				r.Header.Set(hdr, val)
 			}
 		}
+	} else if isAnthropicBase && !countTokens {
+		applyClaudeCodeGatewayHints(r.Header, incomingHeaders, body)
 	}
 	// Per-request UUID, matches Claude Code's x-client-request-id for first-party API.
 	// identityHeader prefers the incoming value for a confirmed client, so a confirmed
@@ -1494,6 +1501,39 @@ func applyClaudeHeadersWithNativeProfile(
 	return nil
 }
 
+const (
+	claudeRequestClassHeader   = "X-Claude-Code-Request-Class"
+	claude1PRequestClassHeader = "X-Claude-1p-Request-Class"
+	claudePromptIDHeader       = "X-Claude-Code-Prompt-Id"
+	claudeToolsUsedHeader      = "X-Claude-Code-Sandy-Plover"
+)
+
+// applyClaudeCodeGatewayHints sets the request-class, prompt and tools-used
+// headers that Claude Code 2.1.325 attaches to every first-party /v1/messages
+// request. Main turns are "main"/"main" and carry the billing block's
+// cc_prompt_id; probes and helpers are "auxiliary"/"summary-extraction";
+// subagents are "subagent"/"blocking-subagent" (the cloak cannot tell a
+// background agent apart). Neither of those two carries a prompt id. The
+// tools-used list is rebuilt from the transcript the request carries.
+func applyClaudeCodeGatewayHints(headers, incomingHeaders http.Header, body []byte) {
+	requestClass, firstPartyClass := "main", "main"
+	switch {
+	case helps.IsClaudeProbeOrHelperRequest(body):
+		requestClass, firstPartyClass = "auxiliary", "summary-extraction"
+	case helps.IsClaudeSubagentRequest(incomingHeaders, body):
+		requestClass, firstPartyClass = "subagent", "blocking-subagent"
+	}
+	headers.Set(claude1PRequestClassHeader, firstPartyClass)
+	headers.Set(claudeRequestClassHeader, requestClass)
+	headers.Del(claudePromptIDHeader)
+	if requestClass == "main" {
+		if _, promptID := helps.ExtractClaudeBillingTags(body); promptID != "" {
+			headers.Set(claudePromptIDHeader, promptID)
+		}
+	}
+	headers.Set(claudeToolsUsedHeader, helps.ClaudeToolsUsedHeaderValue(body))
+}
+
 // doClaudeUpstreamRequest is the single send boundary for every Claude upstream
 // call. Folding the wire-casing pass in here makes it structurally impossible
 // for one of the three request paths to drift away from the others, which is
@@ -1513,6 +1553,11 @@ var claudeWireHeaderCasing = map[string]string{
 	"Anthropic-Version":   "anthropic-version",
 	"X-App":               "x-app",
 	"X-Client-Request-Id": "x-client-request-id",
+
+	claude1PRequestClassHeader: "x-claude-1p-request-class",
+	claudePromptIDHeader:       "x-claude-code-prompt-id",
+	claudeRequestClassHeader:   "x-claude-code-request-class",
+	claudeToolsUsedHeader:      "x-claude-code-sandy-plover",
 
 	"Anthropic-Dangerous-Direct-Browser-Access": "anthropic-dangerous-direct-browser-access",
 }
