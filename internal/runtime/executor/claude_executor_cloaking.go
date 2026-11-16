@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf16"
@@ -149,7 +150,15 @@ func computeFingerprint(messageText, version string) string {
 
 // generateBillingHeader creates the x-anthropic-billing-header text block that
 // Claude Code prepends to its system prompt. cch is present only on signed paths.
-func generateBillingHeader(cchSigning bool, version, messageText, entrypoint, workload string, isSubagent bool, prevReq, promptID string, turnOrigin ...string) string {
+//
+// Field order follows 2.1.325: cc_version; cc_entrypoint; cch; cc_workload;
+// cc_is_subagent; cc_prev_req; cc_prompt_id; cc_turn_origin; cc_prompt_index;
+// cc_turn_index. The attribution fields after cc_is_subagent are first-party
+// only and so follow cchSigning. turnIndex is the transcript position of the
+// current human turn (see claudeBillingTurnIndex); a human turn advances the
+// prompt index together with the turn index, so both carry the same value.
+// They are written only alongside cc_turn_origin=human and only from 1 up.
+func generateBillingHeader(cchSigning bool, version, messageText, entrypoint, workload string, isSubagent bool, prevReq, promptID string, turnIndex int, turnOrigin ...string) string {
 	if entrypoint == "" {
 		entrypoint = "cli"
 	}
@@ -187,9 +196,47 @@ func generateBillingHeader(cchSigning bool, version, messageText, entrypoint, wo
 		}
 		if len(turnOrigin) > 0 && turnOrigin[0] == "human" {
 			b.WriteString(" cc_turn_origin=human;")
+			if turnIndex >= 1 {
+				index := strconv.Itoa(turnIndex)
+				b.WriteString(" cc_prompt_index=")
+				b.WriteString(index)
+				b.WriteString("; cc_turn_index=")
+				b.WriteString(index)
+				b.WriteByte(';')
+			}
 		}
 	}
 	return b.String()
+}
+
+// claudeBillingTurnIndex derives 2.1.325's transcript-relative turn position
+// from the request itself rather than process state: each user message that
+// carries new input opens a turn, while a user message holding tool_result
+// blocks continues the turn whose tool call it answers, so a tool loop keeps
+// its position. Claude Code numbers a conversation's first human turn 1.
+func claudeBillingTurnIndex(payload []byte) int {
+	turns := 0
+	gjson.GetBytes(payload, "messages").ForEach(func(_, message gjson.Result) bool {
+		if message.Get("role").String() != "user" {
+			return true
+		}
+		content := message.Get("content")
+		continuation := false
+		if content.IsArray() {
+			content.ForEach(func(_, block gjson.Result) bool {
+				if block.Get("type").String() == "tool_result" {
+					continuation = true
+					return false
+				}
+				return true
+			})
+		}
+		if !continuation {
+			turns++
+		}
+		return true
+	})
+	return turns
 }
 
 func resolveClaudeContinuityTags(
@@ -301,6 +348,7 @@ func claudeCCHFallbackBillingHeader(ctx context.Context, cfg *config.Config, pay
 		isSubagent,
 		prevReq,
 		promptID,
+		0,
 	)
 }
 
@@ -414,7 +462,11 @@ func checkSystemInstructionsWithSigningModeAt(
 	system := gjson.GetBytes(payload, "system")
 	messageText := claudeBillingFingerprintMessageText(payload)
 
-	billingText := generateBillingHeader(cchSigning, version, messageText, entrypoint, workload, isSubagent, prevReq, promptID, turnOrigin...)
+	turnIndex := 0
+	if len(turnOrigin) > 0 && turnOrigin[0] == "human" {
+		turnIndex = claudeBillingTurnIndex(payload)
+	}
+	billingText := generateBillingHeader(cchSigning, version, messageText, entrypoint, workload, isSubagent, prevReq, promptID, turnIndex, turnOrigin...)
 	billingBlock := buildTextBlock(billingText, nil)
 
 	isExplicit := (len(turnOrigin) > 1 && turnOrigin[1] == "explicit_cache_mode") || isExplicitPromptCacheMode(payload)
