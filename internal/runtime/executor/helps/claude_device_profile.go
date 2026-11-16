@@ -59,6 +59,13 @@ type claudeCLIVersion struct {
 	patch int
 }
 
+// minimumNativeClaudeCodeVersion is the oldest Claude Code release still
+// recognised as a native client (confirmed detection and native passthrough).
+// It is deliberately separate from the impersonated baseline above: bumping the
+// cloak to a newer release must not demote clients that have not auto-updated
+// yet to the cloaked path.
+var minimumNativeClaudeCodeVersion = claudeCLIVersion{major: 2, minor: 1, patch: 280}
+
 func (v claudeCLIVersion) Compare(other claudeCLIVersion) int {
 	switch {
 	case v.major != other.major:

@@ -160,7 +160,7 @@ func DetectClaudeCodeRequest(headers http.Header, payload []byte, countTokens bo
 	metadataUserID := gjson.GetBytes(payload, "metadata.user_id")
 	detection.MetadataUserID = metadataUserID.Exists() && metadataUserID.Type == gjson.String && isValidUserID(metadataUserID.String())
 	detection.NativeClient = isNativeClaudeEntrypoint(entrypoint, agentSDKVersion)
-	detection.NativePassthrough = nativePassthroughEligible(userAgent, entrypoint, agentSDKVersion, detection.XAppCLI, detection.MetadataUserID, countTokens, cfg)
+	detection.NativePassthrough = nativePassthroughEligible(userAgent, entrypoint, agentSDKVersion, detection.XAppCLI, detection.MetadataUserID, countTokens)
 	standardSignals := detection.XAppCLI && detection.UserAgent && detection.BetasPresent && (countTokens || detection.MetadataUserID)
 	detection.HelperProfile = detection.NativeClient && matchesMeasuredClaudeCodeHelperProfile(headers, payload, countTokens, detection, cfg)
 	detection.StrongSignals = standardSignals || detection.HelperProfile
@@ -168,19 +168,15 @@ func DetectClaudeCodeRequest(headers http.Header, payload []byte, countTokens bo
 	return detection
 }
 
-// nativePassthroughEligible accepts native Claude Code versions at or above the
-// configured device-profile baseline. The baseline is a forward-only floor: newer
-// patch, minor, and major versions remain eligible without a ceiling.
-func nativePassthroughEligible(userAgent, entrypoint, agentSDKVersion string, xAppCLI, metadataUserID, countTokens bool, cfg *config.Config) bool {
+// nativePassthroughEligible accepts native Claude Code versions at or above
+// minimumNativeClaudeCodeVersion. The floor is forward-only: newer patch, minor,
+// and major versions remain eligible without a ceiling.
+func nativePassthroughEligible(userAgent, entrypoint, agentSDKVersion string, xAppCLI, metadataUserID, countTokens bool) bool {
 	if !xAppCLI || (!countTokens && !metadataUserID) || !isNativeClaudeEntrypoint(entrypoint, agentSDKVersion) {
 		return false
 	}
 	candidate, okCandidate := parseClaudeCLIVersion(userAgent)
-	baseline := defaultClaudeDeviceProfile(cfg)
-	if !okCandidate || !baseline.hasVersion {
-		return false
-	}
-	return candidate.Compare(baseline.version) >= 0
+	return okCandidate && candidate.Compare(minimumNativeClaudeCodeVersion) >= 0
 }
 
 func claudeCodeHelperBetaProfile(redactThinking bool, trailing ...string) string {
@@ -535,9 +531,17 @@ func plausibleClaudeCodeUserAgent(userAgent string, cfg *config.Config) bool {
 		return false
 	}
 	candidate, okCandidate := parseClaudeCLIVersion(userAgent)
+	if !okCandidate {
+		return false
+	}
+	// Patch releases at or above the native floor within its release line stay
+	// plausible, independent of the newer version the cloak impersonates. An
+	// operator-configured baseline in a later release line is accepted as well.
+	if plausibleClaudeCLIVersion(candidate, minimumNativeClaudeCodeVersion) {
+		return true
+	}
 	baseline, okBaseline := parseClaudeCLIVersion(defaultClaudeDeviceProfile(cfg).UserAgent)
-	// Patch releases (>= baseline.patch) within the release line preserve native passthrough.
-	return okCandidate && okBaseline && plausibleClaudeCLIVersion(candidate, baseline)
+	return okBaseline && plausibleClaudeCLIVersion(candidate, baseline)
 }
 
 func parseClaudeCodeUserAgentDetails(userAgent string) (entrypoint, agentSDKVersion string) {

@@ -601,12 +601,14 @@ func TestDetectClaudeCodeRequestNativePassthroughEligibility(t *testing.T) {
 		countTokens bool
 		want        bool
 	}{
-		{name: "at floor", userAgent: "claude-cli/2.1.325 (external, cli)", xApp: "cli", payload: validPayload, want: true},
+		{name: "impersonated baseline", userAgent: "claude-cli/2.1.325 (external, cli)", xApp: "cli", payload: validPayload, want: true},
 		{name: "newer patch", userAgent: "claude-cli/2.1.999 (external, cli)", xApp: "cli", payload: validPayload, want: true},
 		{name: "newer minor", userAgent: "claude-cli/2.2.0 (external, cli)", xApp: "cli", payload: validPayload, want: true},
 		{name: "newer major", userAgent: "claude-cli/3.0.0 (external, cli)", xApp: "cli", payload: validPayload, want: true},
 		{name: "forward-compatible trailing detail", userAgent: "claude-cli/2.2.0 (external, cli, agent-sdk/0.2.0, something-new)", xApp: "cli", payload: validPayload, want: true},
-		{name: "below floor", userAgent: "claude-cli/2.1.324 (external, cli)", xApp: "cli", payload: validPayload},
+		{name: "between native floor and impersonated baseline", userAgent: "claude-cli/2.1.324 (external, cli)", xApp: "cli", payload: validPayload, want: true},
+		{name: "native floor", userAgent: "claude-cli/2.1.280 (external, cli)", xApp: "cli", payload: validPayload, want: true},
+		{name: "below floor", userAgent: "claude-cli/2.1.279 (external, cli)", xApp: "cli", payload: validPayload},
 		{name: "missing x-app", userAgent: "claude-cli/2.1.325 (external, cli)", payload: validPayload},
 		{name: "non-native entrypoint", userAgent: "claude-cli/2.1.325 (external, claude-desktop)", xApp: "cli", payload: validPayload},
 		{name: "agent-sdk host entrypoint", userAgent: "claude-cli/2.1.325 (external, t3-code, agent-sdk/0.3.321)", xApp: "cli", payload: validPayload, want: true},
@@ -631,26 +633,38 @@ func TestDetectClaudeCodeRequestNativePassthroughEligibility(t *testing.T) {
 	}
 }
 
-func TestDetectClaudeCodeRequestNativePassthroughUsesConfiguredVersionFloor(t *testing.T) {
+// The native floor is independent of the impersonated baseline: raising the
+// cloak (or an operator-configured baseline) to a newer release must not demote
+// clients between the floor and that release to the cloaked path.
+func TestDetectClaudeCodeRequestNativePassthroughFloorIsIndependentOfBaseline(t *testing.T) {
 	payload := claudeCodeDetectionPayload(validClaudeCodeMetadataUserID)
-	cfg := &config.Config{ClaudeHeaderDefaults: config.ClaudeHeaderDefaults{
+	configured := &config.Config{ClaudeHeaderDefaults: config.ClaudeHeaderDefaults{
 		UserAgent: "claude-cli/2.1.330 (external, cli)",
 	}}
-	for _, test := range []struct {
-		version string
-		want    bool
-	}{
-		{version: "2.1.280"},
-		{version: "2.1.330", want: true},
-	} {
-		t.Run(test.version, func(t *testing.T) {
-			headers := confirmedClaudeCodeHeaders()
-			headers.Set("User-Agent", "claude-cli/"+test.version+" (external, cli)")
-			detection := DetectClaudeCodeRequest(headers, payload, false, cfg)
-			if detection.NativePassthrough != test.want {
-				t.Fatalf("NativePassthrough = %t, want %t: %#v", detection.NativePassthrough, test.want, detection)
-			}
-		})
+	for _, cfg := range []*config.Config{nil, configured} {
+		for _, test := range []struct {
+			version string
+			want    bool
+		}{
+			{version: "2.1.279"},
+			{version: "2.1.280", want: true},
+			{version: "2.1.324", want: true},
+			{version: "2.1.325", want: true},
+			{version: "2.1.326", want: true},
+			{version: "2.1.330", want: true},
+		} {
+			t.Run(test.version, func(t *testing.T) {
+				headers := confirmedClaudeCodeHeaders()
+				headers.Set("User-Agent", "claude-cli/"+test.version+" (external, cli)")
+				detection := DetectClaudeCodeRequest(headers, payload, false, cfg)
+				if detection.NativePassthrough != test.want {
+					t.Fatalf("NativePassthrough = %t, want %t: %#v", detection.NativePassthrough, test.want, detection)
+				}
+				if detection.UserAgent != test.want {
+					t.Fatalf("plausible UserAgent = %t, want %t: %#v", detection.UserAgent, test.want, detection)
+				}
+			})
+		}
 	}
 }
 
