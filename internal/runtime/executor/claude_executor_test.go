@@ -8329,11 +8329,11 @@ func TestClaudeCodeCLIBetas_MatchesObservedClientMatrix(t *testing.T) {
 				"mid-conversation-system-clear-at-2026-08-21,effort-2025-11-24",
 		},
 		{
-			name: "claude-sonnet-5-5 carries tool changes beta unlike sonnet-5",
+			name: "claude-sonnet-5-5 carries tool changes and per-turn-control betas unlike sonnet-5",
 			body: `{"model":"claude-sonnet-5-5"}`,
 			want: "claude-code-20250219,interleaved-thinking-2025-05-14," +
 				"redact-thinking-2026-02-12,context-management-2025-06-27," +
-				"prompt-caching-scope-2026-01-05," +
+				"prompt-caching-scope-2026-01-05,per-turn-control-2026-07-01," +
 				"mid-conversation-tool-changes-2026-07-01," +
 				"thinking-token-count-2026-05-13," +
 				"mid-conversation-system-clear-at-2026-08-21,effort-2025-11-24",

@@ -319,6 +319,32 @@ func TestClaudeCodeCLIBetas_Haiku55TitleHelperGates(t *testing.T) {
 	}
 }
 
+// The 2.1.325 catalog lists per_turn_effort and per_turn_timing for Sonnet 5.5,
+// Fable 5.2 and Mythos 5.2, so they always carry per-turn-control and carry
+// timing-2026-09-09 only when the body sets output_config.timing.
+func TestClaudeCodeCLIBetas_PerTurnEffortCatalogModels(t *testing.T) {
+	for _, model := range []string{"claude-sonnet-5-5", "claude-fable-5-2", "claude-mythos-5-2"} {
+		for _, tt := range []struct {
+			name       string
+			body       string
+			wantTiming bool
+		}{
+			{name: "no timing", body: `{"model":"` + model + `","thinking":{"type":"adaptive"}}`},
+			{name: "timing", body: `{"model":"` + model + `","thinking":{"type":"adaptive"},"output_config":{"timing":{}}}`, wantTiming: true},
+		} {
+			t.Run(model+"/"+tt.name, func(t *testing.T) {
+				got := claudeCodeCLIBetas([]byte(tt.body), nil, true)
+				if !strings.Contains(got, claudePerTurnControlBeta) {
+					t.Errorf("betas = %s, want %s", got, claudePerTurnControlBeta)
+				}
+				if has := strings.Contains(got, claudePerTurnTimingBeta); has != tt.wantTiming {
+					t.Errorf("timing beta present = %t, want %t: %s", has, tt.wantTiming, got)
+				}
+			})
+		}
+	}
+}
+
 // A cloaked quota-probe-shaped body gets exactly the captured 2.1.325 quota
 // probe's betas: no tool-provenance and no thinking-token-count.
 func TestClaudeCodeCLIBetas_QuotaProbeMatches2_1_325Capture(t *testing.T) {

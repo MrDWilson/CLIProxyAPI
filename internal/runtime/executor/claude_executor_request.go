@@ -337,7 +337,16 @@ func applyClaudeCloakThinkingDisplay(body []byte, callerOwned bool) []byte {
 // claudeModelHasPerTurnEffort reports models whose 2.1.325 catalog lists
 // per_turn_effort, which puts per-turn-control-2026-07-01 on their requests.
 func claudeModelHasPerTurnEffort(model string) bool {
-	return isClaudeOpus55Model(model) || strings.HasPrefix(claudeCanonicalModel(model), "claude-fable-5-1") || isClaudeHaiku55Model(model)
+	if isClaudeOpus55Model(model) || isClaudeSonnet55Model(model) || isClaudeHaiku55Model(model) {
+		return true
+	}
+	model = claudeCanonicalModel(model)
+	for _, prefix := range []string{"claude-fable-5-1", "claude-fable-5-2", "claude-mythos-5-2"} {
+		if strings.HasPrefix(model, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // isClaudeHaiku55Model reports Haiku 5.5, whose 2.1.325 catalog entry lists
