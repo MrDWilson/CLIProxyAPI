@@ -8304,6 +8304,14 @@ func TestClaudeCodeCLIBetas_MatchesObservedClientMatrix(t *testing.T) {
 				"effort-2025-11-24,structured-outputs-2025-12-15",
 		},
 		{
+			name: "output_config.format alone adds structured outputs",
+			body: `{"model":"claude-opus-4-6","output_config":{"format":{"type":"json_schema","schema":{"type":"object"}}}}`,
+			want: "claude-code-20250219,interleaved-thinking-2025-05-14," +
+				"redact-thinking-2026-02-12,context-management-2025-06-27," +
+				"prompt-caching-scope-2026-01-05,thinking-token-count-2026-05-13," +
+				"effort-2025-11-24,structured-outputs-2025-12-15",
+		},
+		{
 			name:      "unknown caller beta is not smuggled into the baseline",
 			body:      `{"model":"claude-opus-4-6"}`,
 			requested: map[string]bool{"totally-made-up-2030-01-01": true},

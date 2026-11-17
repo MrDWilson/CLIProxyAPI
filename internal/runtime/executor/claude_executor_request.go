@@ -168,7 +168,7 @@ func isManagedClaudeBeta(beta string) bool {
 //	attempt claude-code-side-query-2026-09-29  requested only (side queries)
 //	       effort-2025-11-24                 effort-supporting models with active thinking
 //	       task-budgets-2026-03-13           output_config.task_budget, or requested
-//	       structured-outputs-2025-12-15     requested only
+//	       structured-outputs-2025-12-15     output_config.format body, or requested
 //	       server-side-fallback-2026-06-01   fallbacks list, or requested
 //	       server-side-fallback-2026-07-01   fallbacks:"default", or requested
 //	       fallback-credit-2026-06-01        fallback token, OAuth fallbacks, or requested
@@ -230,7 +230,7 @@ func claudeCodeCLIBetas(body []byte, requested map[string]bool, oauthToken bool)
 	add(requested[claudeSideQueryBeta], claudeSideQueryBeta)
 	add(claudeRequestSupportsEffort(body, requested), claudeEffortBeta)
 	add(requested[claudeTaskBudgetsBeta] || gjson.GetBytes(body, "output_config.task_budget").Exists(), claudeTaskBudgetsBeta)
-	add(requested[claudeStructuredOutputsBeta], claudeStructuredOutputsBeta)
+	add(requested[claudeStructuredOutputsBeta] || gjson.GetBytes(body, "output_config.format").Exists(), claudeStructuredOutputsBeta)
 	fallbacks := gjson.GetBytes(body, "fallbacks")
 	defaultFallbacks := fallbacks.Type == gjson.String && fallbacks.String() == "default"
 	add(!isProbeOrHelper && (requested[claudeServerSideFallbackBeta] || (fallbacks.Exists() && !defaultFallbacks)), claudeServerSideFallbackBeta)
