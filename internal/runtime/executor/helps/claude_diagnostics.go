@@ -328,6 +328,13 @@ func resetClaudeDiagnosticsForTest() {
 // IsClaudeNewPromptTurn inspects the request messages to determine whether
 // this request starts a new user prompt turn (requiring a new cc_prompt_id)
 // versus a tool continuation step (which reuses the current cc_prompt_id).
+//
+// It follows the executor's billing turn index, so the prompt id rotates
+// exactly when cc_prompt_index advances: the trailing run of consecutive user
+// messages is one turn (role=system messages inside it are skipped), and the
+// run's first user message decides. 2.1.325 sends a tool_result message
+// followed by a separate user text message (for example a reminder), which is
+// still the same tool continuation.
 func IsClaudeNewPromptTurn(body []byte) bool {
 	if IsClaudeProbeOrHelperRequest(body) {
 		return false
@@ -340,13 +347,21 @@ func IsClaudeNewPromptTurn(body []byte) bool {
 	if len(arr) == 0 {
 		return true
 	}
-	lastMsg := arr[len(arr)-1]
-	if lastMsg.Get("role").String() != "user" {
+	if arr[len(arr)-1].Get("role").String() != "user" {
 		return false
 	}
-	content := lastMsg.Get("content")
+	first := len(arr) - 1
+	for i := len(arr) - 2; i >= 0; i-- {
+		role := arr[i].Get("role").String()
+		if role == "assistant" {
+			break
+		}
+		if role == "user" {
+			first = i
+		}
+	}
+	content := arr[first].Get("content")
 	if content.IsArray() {
-		// If any element is a tool_result, this is a tool continuation turn.
 		for _, part := range content.Array() {
 			if part.Get("type").String() == "tool_result" {
 				return false
