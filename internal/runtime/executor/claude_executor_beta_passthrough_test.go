@@ -158,7 +158,8 @@ func TestApplyClaudeHeaders_ForwardsUnmanagedCallerBetas_OAuth(t *testing.T) {
 
 // Probes and Haiku requests without fallbacks never carry a server-side
 // fallback beta, neither the list (2026-06-01) nor the default (2026-07-01)
-// variant, even when a caller on a custom gateway asks for them.
+// variant, nor fallback-credit-2026-06-01, even when a caller on a custom
+// gateway asks for them.
 func TestApplyClaudeHeaders_StripsBothServerSideFallbackBetasFromProbesAndHaiku(t *testing.T) {
 	t.Parallel()
 
@@ -173,12 +174,12 @@ func TestApplyClaudeHeaders_StripsBothServerSideFallbackBetasFromProbesAndHaiku(
 				t.Fatalf("NewRequest() error = %v", errReq)
 			}
 			incoming := http.Header{}
-			incoming.Set("Anthropic-Beta", claudeServerSideFallbackBeta+","+claudeServerSideFallbackDefaultBeta)
+			incoming.Set("Anthropic-Beta", claudeServerSideFallbackBeta+","+claudeServerSideFallbackDefaultBeta+","+claudeFallbackCreditBeta)
 			if errHeaders := applyClaudeHeaders(req, auth, auth.Attributes[cliproxyauth.AttributeAPIKey], false, nil, []byte(body), &config.Config{}, incoming, false); errHeaders != nil {
 				t.Fatalf("applyClaudeHeaders() error = %v", errHeaders)
 			}
 			betas := req.Header.Get("Anthropic-Beta")
-			for _, beta := range []string{claudeServerSideFallbackBeta, claudeServerSideFallbackDefaultBeta} {
+			for _, beta := range []string{claudeServerSideFallbackBeta, claudeServerSideFallbackDefaultBeta, claudeFallbackCreditBeta} {
 				if strings.Contains(betas, beta) {
 					t.Errorf("Anthropic-Beta = %q, want %s stripped", betas, beta)
 				}

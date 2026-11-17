@@ -1288,6 +1288,7 @@ func applyClaudeHeadersWithNativeProfile(
 		if reqProbeOrHelper && !helperProfile {
 			baseBetas = withoutClaudeBeta(baseBetas, claudeServerSideFallbackBeta)
 			baseBetas = withoutClaudeBeta(baseBetas, claudeServerSideFallbackDefaultBeta)
+			baseBetas = withoutClaudeBeta(baseBetas, claudeFallbackCreditBeta)
 			baseBetas = withoutClaudeBeta(baseBetas, claudeThinkingDisplayUpdatesBeta)
 			baseBetas = withoutClaudeBeta(baseBetas, claudeExtendedCacheTTLBeta)
 		}
@@ -1305,6 +1306,7 @@ func applyClaudeHeadersWithNativeProfile(
 		if isClaudeHaikuModel(reqModel) && !gjson.GetBytes(body, "fallbacks").Exists() && !helperProfile {
 			baseBetas = withoutClaudeBeta(baseBetas, claudeServerSideFallbackBeta)
 			baseBetas = withoutClaudeBeta(baseBetas, claudeServerSideFallbackDefaultBeta)
+			baseBetas = withoutClaudeBeta(baseBetas, claudeFallbackCreditBeta)
 		}
 
 		if strings.TrimSpace(baseBetas) == "" {
