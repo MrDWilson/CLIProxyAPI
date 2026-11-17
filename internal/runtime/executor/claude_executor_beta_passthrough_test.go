@@ -155,3 +155,34 @@ func TestApplyClaudeHeaders_ForwardsUnmanagedCallerBetas_OAuth(t *testing.T) {
 		t.Fatalf("Anthropic-Beta = %q, want fable-5-1 per-turn-control assembled", betas)
 	}
 }
+
+// Probes and Haiku requests without fallbacks never carry a server-side
+// fallback beta, neither the list (2026-06-01) nor the default (2026-07-01)
+// variant, even when a caller on a custom gateway asks for them.
+func TestApplyClaudeHeaders_StripsBothServerSideFallbackBetasFromProbesAndHaiku(t *testing.T) {
+	t.Parallel()
+
+	for name, body := range map[string]string{
+		"probe": `{"model":"claude-opus-5-5","max_tokens":1,"messages":[{"role":"user","content":"quota"}]}`,
+		"haiku": `{"model":"claude-haiku-4-5-20251001","max_tokens":64,"messages":[{"role":"user","content":"hello"}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			auth := fixtureAuth()
+			req, errReq := http.NewRequest(http.MethodPost, "https://gateway.example.invalid/v1/messages", nil)
+			if errReq != nil {
+				t.Fatalf("NewRequest() error = %v", errReq)
+			}
+			incoming := http.Header{}
+			incoming.Set("Anthropic-Beta", claudeServerSideFallbackBeta+","+claudeServerSideFallbackDefaultBeta)
+			if errHeaders := applyClaudeHeaders(req, auth, auth.Attributes[cliproxyauth.AttributeAPIKey], false, nil, []byte(body), &config.Config{}, incoming, false); errHeaders != nil {
+				t.Fatalf("applyClaudeHeaders() error = %v", errHeaders)
+			}
+			betas := req.Header.Get("Anthropic-Beta")
+			for _, beta := range []string{claudeServerSideFallbackBeta, claudeServerSideFallbackDefaultBeta} {
+				if strings.Contains(betas, beta) {
+					t.Errorf("Anthropic-Beta = %q, want %s stripped", betas, beta)
+				}
+			}
+		})
+	}
+}
