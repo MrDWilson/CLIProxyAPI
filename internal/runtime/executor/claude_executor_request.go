@@ -156,7 +156,8 @@ func isManagedClaudeBeta(beta string) bool {
 //	       program-use-case-ids-2026-09-17   program_use_case_id body, or requested
 //	       claude-code-20250219              haiku models: agentic queries add it here,
 //	                                         probes and helpers do not
-//	model  per-turn-control-2026-07-01       opus-5-5, fable-5-1 and haiku-5-5, or requested
+//	model  per-turn-control-2026-07-01       per_turn_effort catalog models
+//	                                         (claudeModelHasPerTurnEffort), or requested
 //	       timing-2026-09-09                 per-turn timing body, or requested
 //	       mid-conversation-tool-changes-2026-07-01  role=system models except sonnet-5
 //	       inline-tools-2026-09-15           inline tool_addition definitions, or requested
