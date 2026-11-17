@@ -457,6 +457,13 @@ upstream:
     # API-key overrides use api-keys.claude[].keys[].cloak.mode.
     disable-claude-cloak-mode: false
 
+    # When true, cloaked claude-opus-5-5 and claude-fable-5-1 requests without their own
+    # "fallbacks" get Claude Code's server-side refusal fallback (claude-opus-4-8 and
+    # claude-opus-5) plus the matching server-side-fallback and fallback-credit betas.
+    # Default false: the cloak never adds fallbacks. Caller and payload-rule fallbacks
+    # are always forwarded unchanged.
+    claude-cloak-refusal-fallback: false
+
     # When true, return original model IDs in Anthropic model list responses instead of cloaked IDs.
     disable-cloaking-model-list: false
 

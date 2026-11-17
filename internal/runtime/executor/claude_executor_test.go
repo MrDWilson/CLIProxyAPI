@@ -5452,7 +5452,7 @@ func TestApplyCloaking_PreservesConfiguredStrictModeAndSensitiveWordsWhenModeOmi
 }
 
 func TestApplyCloaking_Opus55FallbackOnlyForUnconfirmedClients(t *testing.T) {
-	cfg := &config.Config{ClaudeKey: []config.ClaudeKey{{
+	cfg := &config.Config{ClaudeCloakRefusalFallback: true, ClaudeKey: []config.ClaudeKey{{
 		APIKey: "sk-ant-oat-opus55-test", Cloak: &config.CloakConfig{},
 	}}}
 	auth := &cliproxyauth.Auth{Attributes: map[string]string{"api_key": "sk-ant-oat-opus55-test"}}
@@ -5508,7 +5508,7 @@ func TestClaudeExecutor_CloakedOpus55PairsFallbackAndBetas(t *testing.T) {
 		"api_key": "sk-ant-oat-cloaked-opus55", "base_url": server.URL,
 	}}
 	payload := []byte(`{"model":"claude-opus-5-5","thinking":{"type":"adaptive"},"messages":[{"role":"user","content":"test"}]}`)
-	executor := NewClaudeExecutor(&config.Config{})
+	executor := NewClaudeExecutor(&config.Config{ClaudeCloakRefusalFallback: true})
 	_, err := executor.Execute(context.Background(), auth, cliproxyexecutor.Request{
 		Model: "claude-opus-5-5", Payload: payload,
 	}, cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatClaude})
@@ -5551,14 +5551,14 @@ func TestClaudeOpus55FallbackReconcilesAfterModelOverride(t *testing.T) {
 		{name: "Opus probe", body: string(cloaked), probe: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			got := reconcileClaudeCodeFableModelAfterPayload([]byte(tt.body), state, false, false, true, tt.probe)
+			got := reconcileClaudeCodeFableModelAfterPayload([]byte(tt.body), state, false, false, true, tt.probe, true)
 			if model := gjson.GetBytes(got, "fallbacks.0.model").String(); model != tt.wantFallback {
 				t.Errorf("fallback = %q, want %q", model, tt.wantFallback)
 			}
 		})
 	}
 	got := reconcileClaudeCodeFableModelAfterPayload(
-		[]byte(`{"model":"claude-opus-5-5","system":[]}`), claudeCodeFableState{}, false, false, true, false,
+		[]byte(`{"model":"claude-opus-5-5","system":[]}`), claudeCodeFableState{}, false, false, true, false, true,
 	)
 	if fallback := gjson.GetBytes(got, "fallbacks.0.model").String(); fallback != "claude-opus-4-8" {
 		t.Errorf("Sonnet rewritten to Opus fallback = %q", fallback)
@@ -5567,6 +5567,7 @@ func TestClaudeOpus55FallbackReconcilesAfterModelOverride(t *testing.T) {
 
 func TestApplyCloaking_FableInjectsFallbacksAndDisplayUpdates(t *testing.T) {
 	cfg := &config.Config{
+		ClaudeCloakRefusalFallback: true,
 		ClaudeKey: []config.ClaudeKey{{
 			APIKey: "sk-ant-oat-fable-test",
 			Cloak:  &config.CloakConfig{},
@@ -5945,6 +5946,7 @@ func TestClaudeExecutor_PayloadOverrideFableModelLeavesBuiltinsUnchanged(t *test
 	defer server.Close()
 
 	cfg := &config.Config{
+		ClaudeCloakRefusalFallback: true,
 		ClaudeKey: []config.ClaudeKey{{
 			APIKey: "sk-ant-oat-payload-fable-test",
 			Cloak:  &config.CloakConfig{},
@@ -6112,6 +6114,7 @@ func TestClaudeExecutor_PayloadUnrelatedRuleLeavesBuiltinFallbacksUnchanged(t *t
 	defer server.Close()
 
 	cfg := &config.Config{
+		ClaudeCloakRefusalFallback: true,
 		ClaudeKey: []config.ClaudeKey{{
 			APIKey: "sk-ant-oat-payload-fable-test-4",
 			Cloak:  &config.CloakConfig{},
@@ -6226,6 +6229,7 @@ func TestClaudeExecutor_PayloadFableProbeOverrideKeepsBuiltinAdditions(t *testin
 	defer server.Close()
 
 	cfg := &config.Config{
+		ClaudeCloakRefusalFallback: true,
 		ClaudeKey: []config.ClaudeKey{{
 			APIKey: "sk-ant-oat-payload-fable-probe-strip-test",
 			Cloak:  &config.CloakConfig{},
@@ -7297,6 +7301,7 @@ func TestClaudeExecutor_PayloadFilterFallbacksPreservesRemovalOnFable(t *testing
 	defer server.Close()
 
 	cfg := &config.Config{
+		ClaudeCloakRefusalFallback: true,
 		ClaudeKey: []config.ClaudeKey{{
 			APIKey: "sk-ant-oat-payload-fable-filter-test",
 			Cloak:  &config.CloakConfig{},

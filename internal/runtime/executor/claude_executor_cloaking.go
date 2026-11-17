@@ -1130,9 +1130,29 @@ func captureClaudeCodeFableState(before, after []byte, cloaked bool) claudeCodeF
 	}
 }
 
+// claudeCloakRefusalFallbackEnabled reports whether the cloak may add Claude
+// Code's server-side refusal fallback (claude-cloak-refusal-fallback).
+func claudeCloakRefusalFallbackEnabled(cfg *config.Config) bool {
+	return cfg != nil && cfg.ClaudeCloakRefusalFallback
+}
+
+// claudeCloakRefusalFallbackModel is the fallback model Claude Code names for
+// model, or "" when it sends none.
+func claudeCloakRefusalFallbackModel(model string) string {
+	switch {
+	case isClaudeFable51Model(model):
+		return "claude-opus-5"
+	case isClaudeOpus55Model(model):
+		return "claude-opus-4-8"
+	}
+	return ""
+}
+
 // reconcileClaudeCodeFableModelAfterPayload reconciles model-specific additions
 // (Opus fallback, thinking.display=updates, and # Reporting outcomes system block)
 // if payload rules rewrite the request model between Fable 5.1 and non-Fable models.
+// refusalFallback mirrors claude-cloak-refusal-fallback: when false no fallback
+// is added for the rewritten model.
 func reconcileClaudeCodeFableModelAfterPayload(
 	body []byte,
 	fableState claudeCodeFableState,
@@ -1140,6 +1160,7 @@ func reconcileClaudeCodeFableModelAfterPayload(
 	payloadTouchedDisplay bool,
 	cloaked bool,
 	isProbeOrHelper bool,
+	refusalFallback bool,
 ) []byte {
 	if !cloaked || len(body) == 0 {
 		return body
@@ -1179,11 +1200,8 @@ func reconcileClaudeCodeFableModelAfterPayload(
 	// caller or payload-rule fallback; only replace one inserted by the cloak.
 	if fableState.injectedFallbacks && !payloadTouchedFallbacks {
 		wantFallback := ""
-		switch {
-		case isClaudeFable51Model(currentModel):
-			wantFallback = "claude-opus-5"
-		case isClaudeOpus55Model(currentModel):
-			wantFallback = "claude-opus-4-8"
+		if refusalFallback {
+			wantFallback = claudeCloakRefusalFallbackModel(currentModel)
 		}
 		if gjson.GetBytes(body, "fallbacks.0.model").String() != wantFallback {
 			body, _ = sjson.DeleteBytes(body, "fallbacks")
@@ -1193,7 +1211,7 @@ func reconcileClaudeCodeFableModelAfterPayload(
 	if isClaudeFable51Model(currentModel) {
 		// Non-Fable rewritten to Fable 5.1 (or original Fable 5.1): attach Fable additions
 		// unless matching payload rules explicitly configured or filtered them.
-		if !gjson.GetBytes(body, "fallbacks").Exists() && !payloadTouchedFallbacks {
+		if refusalFallback && !gjson.GetBytes(body, "fallbacks").Exists() && !payloadTouchedFallbacks {
 			body, _ = sjson.SetRawBytes(body, "fallbacks", []byte(`[{"model":"claude-opus-5"}]`))
 		}
 		if gjson.GetBytes(body, "thinking").Exists() {
@@ -1235,7 +1253,7 @@ func reconcileClaudeCodeFableModelAfterPayload(
 		return body
 	}
 
-	if isClaudeOpus55Model(currentModel) && !gjson.GetBytes(body, "fallbacks").Exists() && !payloadTouchedFallbacks {
+	if refusalFallback && isClaudeOpus55Model(currentModel) && !gjson.GetBytes(body, "fallbacks").Exists() && !payloadTouchedFallbacks {
 		body, _ = sjson.SetRawBytes(body, "fallbacks", []byte(`[{"model":"claude-opus-4-8"}]`))
 	}
 	thinkingType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "thinking.type").String()))
@@ -1684,15 +1702,14 @@ func applyCloakingInternal(
 		turnOriginArgs...,
 	)
 
-	// In native Claude Code 2.1.258, claude-fable-5-1 requests carry:
-	// "fallbacks": [{"model": "claude-opus-5"}]
-	model := strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "model").String()))
-	if isClaudeOpus55Model(model) && !isProbeOrHelper && !gjson.GetBytes(payload, "fallbacks").Exists() {
-		payload, _ = sjson.SetRawBytes(payload, "fallbacks", []byte(`[{"model":"claude-opus-4-8"}]`))
-	}
-	if isClaudeFable51Model(model) && !isProbeOrHelper {
-		if !gjson.GetBytes(payload, "fallbacks").Exists() {
-			payload, _ = sjson.SetRawBytes(payload, "fallbacks", []byte(`[{"model":"claude-opus-5"}]`))
+	// Claude Code can ask for a server-side refusal fallback ("fallbacks":
+	// [{"model":"claude-opus-4-8"}] on opus-5-5, claude-opus-5 on fable-5-1).
+	// The cloak adds it only when claude-cloak-refusal-fallback is on; caller
+	// fallbacks are never touched. The fallback betas follow from the body.
+	if claudeCloakRefusalFallbackEnabled(cfg) && !isProbeOrHelper && !gjson.GetBytes(payload, "fallbacks").Exists() {
+		model := strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "model").String()))
+		if fallback := claudeCloakRefusalFallbackModel(model); fallback != "" {
+			payload, _ = sjson.SetRawBytes(payload, "fallbacks", []byte(`[{"model":"`+fallback+`"}]`))
 		}
 	}
 	if !isProbeOrHelper {
