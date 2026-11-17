@@ -1510,11 +1510,12 @@ const (
 
 // applyClaudeCodeGatewayHints sets the request-class, prompt and tools-used
 // headers that Claude Code 2.1.325 attaches to every first-party /v1/messages
-// request. Main turns are "main"/"main" and carry the billing block's
-// cc_prompt_id; probes and helpers are "auxiliary"/"summary-extraction";
-// subagents are "subagent"/"blocking-subagent" (the cloak cannot tell a
-// background agent apart). Neither of those two carries a prompt id. The
-// tools-used list is rebuilt from the transcript the request carries.
+// request. Main turns are "main"/"main"; probes and helpers are
+// "auxiliary"/"summary-extraction"; subagents are "subagent"/"blocking-subagent"
+// (the cloak cannot tell a background agent apart). The prompt id header
+// carries the final billing block's cc_prompt_id whenever it has one; 2.1.325
+// sends a subagent's parent prompt id in both places. The tools-used list is
+// rebuilt from the transcript the request carries.
 func applyClaudeCodeGatewayHints(headers, incomingHeaders http.Header, body []byte) {
 	requestClass, firstPartyClass := "main", "main"
 	switch {
@@ -1526,10 +1527,8 @@ func applyClaudeCodeGatewayHints(headers, incomingHeaders http.Header, body []by
 	headers.Set(claude1PRequestClassHeader, firstPartyClass)
 	headers.Set(claudeRequestClassHeader, requestClass)
 	headers.Del(claudePromptIDHeader)
-	if requestClass == "main" {
-		if _, promptID := helps.ExtractClaudeBillingTags(body); promptID != "" {
-			headers.Set(claudePromptIDHeader, promptID)
-		}
+	if _, promptID := helps.ExtractClaudeBillingTags(body); promptID != "" {
+		headers.Set(claudePromptIDHeader, promptID)
 	}
 	headers.Set(claudeToolsUsedHeader, helps.ClaudeToolsUsedHeaderValue(body))
 }

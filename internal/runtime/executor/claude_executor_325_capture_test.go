@@ -244,3 +244,26 @@ func TestClaudeExecutor_Cloaked2_1_325MultiTurnBillingAndGatewayHints(t *testing
 		t.Errorf("second prompt reused prompt id %s", got[2].promptID)
 	}
 }
+
+// 2.1.325 sends a subagent's parent prompt id both in the billing block and in
+// x-claude-code-prompt-id, so a cloaked subagent carries the header too, with
+// the billing value.
+func TestApplyClaudeCodeGatewayHints_SubagentCarriesBillingPromptID(t *testing.T) {
+	const promptID = "00000000-0000-4000-8000-000000000002"
+	body := []byte(`{"model":"claude-opus-5-5","system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.325.000; cc_entrypoint=cli; cch=00000; cc_is_subagent=true; cc_prompt_id=` + promptID + `;"}],"messages":[{"role":"user","content":"task"}]}`)
+	headers := http.Header{}
+	headers.Set(claudePromptIDHeader, "stale")
+	applyClaudeCodeGatewayHints(headers, nil, body)
+	if got := headers.Get(claudeRequestClassHeader) + "/" + headers.Get(claude1PRequestClassHeader); got != "subagent/blocking-subagent" {
+		t.Fatalf("request classes = %q, want subagent/blocking-subagent", got)
+	}
+	if got := headers.Get(claudePromptIDHeader); got != promptID {
+		t.Fatalf("%s = %q, want billing cc_prompt_id %q", claudePromptIDHeader, got, promptID)
+	}
+
+	noPromptID := []byte(`{"model":"claude-opus-5-5","system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.325.000; cc_entrypoint=cli; cch=00000; cc_is_subagent=true;"}],"messages":[{"role":"user","content":"task"}]}`)
+	applyClaudeCodeGatewayHints(headers, nil, noPromptID)
+	if got := headers.Get(claudePromptIDHeader); got != "" {
+		t.Fatalf("%s = %q, want none without a billing cc_prompt_id", claudePromptIDHeader, got)
+	}
+}
