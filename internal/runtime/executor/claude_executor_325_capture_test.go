@@ -318,3 +318,14 @@ func TestClaudeCodeCLIBetas_Haiku55TitleHelperGates(t *testing.T) {
 		t.Error("claude-haiku-5-5 got timing-2026-09-09; its catalog entry lacks per_turn_timing")
 	}
 }
+
+// A cloaked quota-probe-shaped body gets exactly the captured 2.1.325 quota
+// probe's betas: no tool-provenance and no thinking-token-count.
+func TestClaudeCodeCLIBetas_QuotaProbeMatches2_1_325Capture(t *testing.T) {
+	const capturedProbeBetas = "oauth-2025-04-20,interleaved-thinking-2025-05-14,redact-thinking-2026-02-12," +
+		"context-management-2025-06-27,prompt-caching-scope-2026-01-05"
+	probe := `{"model":"claude-haiku-4-5-20251001","max_tokens":1,"messages":[{"role":"user","content":"quota"}],"metadata":{"user_id":"{}"}}`
+	if got := claudeCodeCLIBetas([]byte(probe), nil, true); got != capturedProbeBetas {
+		t.Fatalf("quota probe betas =\n%s\nwant captured\n%s", got, capturedProbeBetas)
+	}
+}

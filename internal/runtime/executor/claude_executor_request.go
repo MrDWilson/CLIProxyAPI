@@ -156,18 +156,18 @@ func isManagedClaudeBeta(beta string) bool {
 //	       program-use-case-ids-2026-09-17   program_use_case_id body, or requested
 //	       claude-code-20250219              haiku models: agentic queries add it here,
 //	                                         probes and helpers do not
-//	model  per-turn-control-2026-07-01       opus-5-5 and fable-5-1, or requested
+//	model  per-turn-control-2026-07-01       opus-5-5, fable-5-1 and haiku-5-5, or requested
 //	       timing-2026-09-09                 per-turn timing body, or requested
 //	       mid-conversation-tool-changes-2026-07-01  role=system models except sonnet-5
 //	       inline-tools-2026-09-15           inline tool_addition definitions, or requested
-//	       tool-provenance-2026-10-26        first-party OAuth, or requested
+//	       tool-provenance-2026-10-26        first-party OAuth except probes, or requested
 //	query  advisor-tool-2026-03-01           advisor tool declared, or requested
-//	       thinking-token-count-2026-05-13
+//	       thinking-token-count-2026-05-13   all but probes, or requested
 //	       advanced-tool-use-2025-11-20      tool search / deferred or advanced tools
 //	       mid-conversation-system-clear-at-2026-08-21  role=system models with kept
 //	                                         reminders, clear_at bodies, or requested
 //	attempt claude-code-side-query-2026-09-29  requested only (side queries)
-//	       effort-2025-11-24                 effort-supporting models with active thinking
+//	       effort-2025-11-24                 effort-supporting models (not probes), thinking not disabled
 //	       task-budgets-2026-03-13           output_config.task_budget, or requested
 //	       structured-outputs-2025-12-15     output_config.format body, or requested
 //	       server-side-fallback-2026-06-01   fallbacks list, or requested
@@ -200,6 +200,9 @@ func claudeCodeCLIBetas(body []byte, requested map[string]bool, oauthToken bool)
 	haiku := isClaudeHaikuModel(model)
 	legacy := claudeUsesLegacySystemReminder(body)
 	isProbeOrHelper := helps.IsClaudeProbeOrHelperRequest(body)
+	// The captured 2.1.325 quota probe sends neither tool-provenance nor
+	// thinking-token-count; the title helper sends both.
+	isProbe := helps.IsClaudeProbeRequest(body)
 	betas := make([]string, 0, 24)
 	add := func(include bool, beta string) {
 		if include {
@@ -221,10 +224,10 @@ func claudeCodeCLIBetas(body []byte, requested map[string]bool, oauthToken bool)
 	add(claudeIncludePerTurnTiming(body, requested), claudePerTurnTimingBeta)
 	add(!legacy && !isClaudeSonnet5Model(model), claudeMidConvToolChangesBeta)
 	add(!legacy && claudeIncludeInlineTools(body, requested), claudeInlineToolsBeta)
-	add(oauthToken || requested[claudeToolProvenanceBeta], claudeToolProvenanceBeta)
+	add((oauthToken && !isProbe) || requested[claudeToolProvenanceBeta], claudeToolProvenanceBeta)
 
 	add(requested[claudeAdvisorToolBeta] || claudeBodyHasAdvisorTool(body), claudeAdvisorToolBeta)
-	add(true, claudeThinkingTokenCountBeta)
+	add(!isProbe || requested[claudeThinkingTokenCountBeta], claudeThinkingTokenCountBeta)
 	add(requested[claudeAdvancedToolUseBeta] || claudeBodyUsesAdvancedToolUse(body), claudeAdvancedToolUseBeta)
 	add(!legacy && claudeIncludeMidConvClearAt(body, requested), claudeMidConvSystemClearAtBeta)
 

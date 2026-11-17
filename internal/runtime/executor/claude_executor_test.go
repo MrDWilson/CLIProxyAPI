@@ -8666,13 +8666,12 @@ func TestClaudeCodeCLIBetas_MatchesObservedClientMatrix(t *testing.T) {
 				"mid-conversation-system-clear-at-2026-08-21,effort-2025-11-24",
 		},
 		{
-			name:  "probe request max_tokens=1 omits effort and extended-cache-ttl betas",
+			name:  "probe request max_tokens=1 omits effort, extended-cache-ttl, tool-provenance and thinking-token-count betas",
 			body:  `{"model":"claude-sonnet-5","max_tokens":1}`,
 			oauth: true,
 			want: "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14," +
 				"redact-thinking-2026-02-12,context-management-2025-06-27," +
-				"prompt-caching-scope-2026-01-05,tool-provenance-2026-10-26," +
-				"thinking-token-count-2026-05-13," +
+				"prompt-caching-scope-2026-01-05," +
 				"mid-conversation-system-clear-at-2026-08-21",
 		},
 		{
