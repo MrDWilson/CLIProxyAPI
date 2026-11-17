@@ -185,6 +185,24 @@ func TestDetectClaudeCodeCountTokensAllowsMissingMetadata(t *testing.T) {
 	}
 }
 
+// Sanitized 2.1.325 helper bodies: the quota probe keeps the minimal shape, the
+// session-title helper moved to claude-haiku-5-5 with a 128000 token cap, the
+// session effort in output_config, and no thinking or temperature.
+const (
+	measuredClaudeCodeQuota325HelperBetas = "oauth-2025-04-20,interleaved-thinking-2025-05-14,redact-thinking-2026-02-12," +
+		"context-management-2025-06-27,prompt-caching-scope-2026-01-05"
+	measuredClaudeCodeTitle325HelperBetas = "oauth-2025-04-20,interleaved-thinking-2025-05-14,redact-thinking-2026-02-12," +
+		"context-management-2025-06-27,prompt-caching-scope-2026-01-05,per-turn-control-2026-07-01," +
+		"mid-conversation-tool-changes-2026-07-01,tool-provenance-2026-10-26,thinking-token-count-2026-05-13," +
+		"mid-conversation-system-clear-at-2026-08-21,claude-code-side-query-2026-09-29,effort-2025-11-24," +
+		"structured-outputs-2025-12-15,cache-diagnosis-2026-04-07"
+)
+
+func measuredClaudeCodeTitle325HelperPayload() []byte {
+	encodedUserID, _ := json.Marshal(validClaudeCodeMetadataUserID)
+	return []byte(`{"model":"claude-haiku-5-5","messages":[{"role":"user","content":[{"type":"text","text":"<session>placeholder</session>"}]}],"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.325.000; cc_entrypoint=cli; cch=00000;"},{"type":"text","text":"You are Claude Code, Anthropic's official CLI for Claude."},{"type":"text","text":"Return a short title."}],"tools":[],"metadata":{"user_id":` + string(encodedUserID) + `},"max_tokens":128000,"output_config":{"effort":"medium","format":{"type":"json_schema","schema":{"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}}},"stream":true}`)
+}
+
 func TestDetectClaudeCodeRequestRecognizesMeasuredHaikuHelpers(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -225,6 +243,16 @@ func TestDetectClaudeCodeRequestRecognizesMeasuredHaikuHelpers(t *testing.T) {
 			name:    "structured title helper 2.1.280",
 			beta:    claudeCodeHelperBetaProfile(true, "structured-outputs-2025-12-15", "server-side-fallback-2026-06-01", "fallback-credit-2026-06-01", "cache-diagnosis-2026-04-07"),
 			payload: measuredClaudeCodeTitle280HelperPayload(),
+		},
+		{
+			name:    "quota probe 2.1.325",
+			beta:    measuredClaudeCodeQuota325HelperBetas,
+			payload: measuredClaudeCodeMinimalHelperPayload(),
+		},
+		{
+			name:    "title helper 2.1.325",
+			beta:    measuredClaudeCodeTitle325HelperBetas,
+			payload: measuredClaudeCodeTitle325HelperPayload(),
 		},
 	}
 	for _, test := range tests {
@@ -503,8 +531,8 @@ func TestDetectClaudeCodeRequestRejectsHelperWithoutPlatformHeaders(t *testing.T
 
 func TestDetectClaudeCodeRequestRejectsHelperWithForeignSoftwareTuple(t *testing.T) {
 	for name, value := range map[string]string{
-		"X-Stainless-Package-Version": "0.0.1",
-		"X-Stainless-Runtime-Version": "v0.0.1",
+		"X-Stainless-Package-Version": "dev-build",
+		"X-Stainless-Runtime-Version": "26.12.1",
 	} {
 		t.Run(name, func(t *testing.T) {
 			headers := measuredClaudeCodeHelperHeaders(claudeCodeHelperBetaProfile(true))
@@ -677,5 +705,53 @@ func TestDetectClaudeCodeRequestNativePassthroughAllowsTrailingUserAgentDetails(
 	}
 	if detection.Confirmed {
 		t.Fatalf("Confirmed = true, want existing strict confirmation behavior unchanged: %#v", detection)
+	}
+}
+
+// The helper profile follows the 2.1.280 native floor, not the impersonated
+// baseline: a 2.1.280 helper with its own SDK tuple stays a confirmed helper,
+// and a release below the floor does not.
+func TestDetectClaudeCodeRequestHelperProfileFollowsNativeFloor(t *testing.T) {
+	for _, tt := range []struct {
+		userAgent string
+		want      bool
+	}{
+		{userAgent: "claude-cli/2.1.280 (external, cli)", want: true},
+		{userAgent: "claude-cli/2.1.300 (external, cli)", want: true},
+		{userAgent: "claude-cli/2.1.279 (external, cli)"},
+	} {
+		t.Run(tt.userAgent, func(t *testing.T) {
+			headers := measuredClaudeCodeHelperHeaders(claudeCodeHelperBetaProfile(true))
+			headers.Set("User-Agent", tt.userAgent)
+			headers.Set("X-Stainless-Package-Version", "0.112.1")
+			headers.Set("X-Stainless-Runtime-Version", "v26.3.0")
+			detection := DetectClaudeCodeRequest(headers, measuredClaudeCodeMinimalHelperPayload(), false)
+			if detection.HelperProfile != tt.want || detection.Confirmed != tt.want {
+				t.Fatalf("detection = %#v, want helper profile %t", detection, tt.want)
+			}
+		})
+	}
+}
+
+func TestDetectClaudeCodeRequestRejectsNearMiss325TitleHelpers(t *testing.T) {
+	payload := string(measuredClaudeCodeTitle325HelperPayload())
+	for name, mutated := range map[string]string{
+		"pre-2.1.325 helper model": strings.Replace(payload, "claude-haiku-5-5", claudeCodeHelperModel, 1),
+		"wrong token cap":          strings.Replace(payload, `"max_tokens":128000`, `"max_tokens":32000`, 1),
+		"missing effort":           strings.Replace(payload, `"effort":"medium",`, "", 1),
+		"thinking added":           strings.Replace(payload, `"stream":true`, `"stream":true,"thinking":{"type":"disabled"}`, 1),
+		"not streaming":            strings.Replace(payload, `"stream":true`, `"stream":false`, 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			detection := DetectClaudeCodeRequest(measuredClaudeCodeHelperHeaders(measuredClaudeCodeTitle325HelperBetas), []byte(mutated), false)
+			if detection.Confirmed || detection.HelperProfile {
+				t.Fatalf("detection = %#v, want 2.1.325 title helper near miss rejected", detection)
+			}
+		})
+	}
+	// The 2.1.325 title body is only a helper under its own measured betas.
+	detection := DetectClaudeCodeRequest(measuredClaudeCodeHelperHeaders(claudeCodeHelperBetaProfile(true, "structured-outputs-2025-12-15")), []byte(payload), false)
+	if detection.HelperProfile {
+		t.Fatalf("detection = %#v, want 2.1.325 title body rejected under a 2.1.220 beta profile", detection)
 	}
 }

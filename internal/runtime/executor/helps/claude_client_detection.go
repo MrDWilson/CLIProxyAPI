@@ -81,16 +81,22 @@ const (
 	claudeCodeHelperShapeMinimal
 	claudeCodeHelperShapeStructured
 	claudeCodeHelperShapeTitle280
+	claudeCodeHelperShapeTitle325
 
 	claudeCodeHelperModel = "claude-haiku-4-5-20251001"
+	// claudeCodeTitle325HelperModel is the model 2.1.325 moved its
+	// session-title helper to; its quota probe stays on claudeCodeHelperModel.
+	claudeCodeTitle325HelperModel = "claude-haiku-5-5"
 )
 
 // These are the exact beta sequences observed on markerless native Haiku
-// helper requests. The first six are Claude Code 2.1.220. The last is the
+// helper requests. The first six are Claude Code 2.1.220. The seventh is the
 // 2.1.280 title helper captured 2026-09-23: structured output, then
-// server-side fallback, fallback credit, and cache diagnosis. Keeping the
-// allowlist exact avoids turning the helper exception into a generic
-// no-claude-code-beta bypass.
+// server-side fallback, fallback credit, and cache diagnosis. The last two are
+// the 2.1.325 quota probe and session-title helper captured 2026-11-16; 2.1.325
+// assembles them in its main-turn phase order, so thinking-token-count moved.
+// Keeping the allowlist exact avoids turning the helper exception into a
+// generic no-claude-code-beta bypass.
 var measuredClaudeCodeHelperBetaProfiles = map[string]claudeCodeHelperShape{
 	claudeCodeHelperBetaProfile(true):  claudeCodeHelperShapeMinimal,
 	claudeCodeHelperBetaProfile(false): claudeCodeHelperShapeMinimal,
@@ -115,6 +121,29 @@ var measuredClaudeCodeHelperBetaProfiles = map[string]claudeCodeHelperShape{
 		"fallback-credit-2026-06-01",
 		"cache-diagnosis-2026-04-07",
 	): claudeCodeHelperShapeTitle280,
+	strings.Join([]string{
+		"oauth-2025-04-20",
+		"interleaved-thinking-2025-05-14",
+		"redact-thinking-2026-02-12",
+		"context-management-2025-06-27",
+		"prompt-caching-scope-2026-01-05",
+	}, ","): claudeCodeHelperShapeMinimal,
+	strings.Join([]string{
+		"oauth-2025-04-20",
+		"interleaved-thinking-2025-05-14",
+		"redact-thinking-2026-02-12",
+		"context-management-2025-06-27",
+		"prompt-caching-scope-2026-01-05",
+		"per-turn-control-2026-07-01",
+		"mid-conversation-tool-changes-2026-07-01",
+		"tool-provenance-2026-10-26",
+		"thinking-token-count-2026-05-13",
+		"mid-conversation-system-clear-at-2026-08-21",
+		"claude-code-side-query-2026-09-29",
+		"effort-2025-11-24",
+		"structured-outputs-2025-12-15",
+		"cache-diagnosis-2026-04-07",
+	}, ","): claudeCodeHelperShapeTitle325,
 }
 
 // ClaudeCodeRequestDetection records the strong signals and first-party
@@ -258,11 +287,13 @@ func normalizedClaudeBetaHeader(headers http.Header) string {
 // to the configured baseline and replaces a non-baseline software tuple instead
 // of rejecting it, so demanding equality here would classify a genuine Claude
 // Code helper from Windows/Linux, or from a different Node or SDK build, as a
-// foreign client and cloak it. Values that carry real discriminating power - the
-// exact beta allowlist, the body shape, the billing CCH and the session binding -
-// stay strict.
+// foreign client and cloak it. The Claude Code version follows the same native
+// floor as passthrough (a patch release at or above 2.1.280 in its release
+// line, or in the configured baseline's line), not the impersonated baseline,
+// and the SDK tuple only has to be well formed. Values that carry real
+// discriminating power - the exact beta allowlist, the body shape, the billing
+// CCH and the session binding - stay strict.
 func measuredClaudeCodeHelperHeadersMatch(headers http.Header, cfg *config.Config, shape claudeCodeHelperShape) bool {
-	profile := defaultClaudeDeviceProfile(cfg)
 	expected := map[string]string{
 		"Accept":                  "application/json",
 		"Content-Type":            "application/json",
@@ -289,16 +320,9 @@ func measuredClaudeCodeHelperHeadersMatch(headers http.Header, cfg *config.Confi
 			return false
 		}
 	}
-	candidate := ClaudeDeviceProfile{
-		UserAgent:      headerValue(headers, "User-Agent"),
-		PackageVersion: headerValue(headers, "X-Stainless-Package-Version"),
-		RuntimeVersion: headerValue(headers, "X-Stainless-Runtime-Version"),
-	}
-	if version, ok := parseClaudeCLIVersion(candidate.UserAgent); ok {
-		candidate.version = version
-		candidate.hasVersion = true
-	}
-	if !meetsClaudeDeviceProfileBaseline(candidate, profile) {
+	if !plausibleClaudeCodeUserAgent(headerValue(headers, "User-Agent"), cfg) ||
+		!claudePackageVersionPattern.MatchString(headerValue(headers, "X-Stainless-Package-Version")) ||
+		!claudeRuntimeVersionPattern.MatchString(headerValue(headers, "X-Stainless-Runtime-Version")) {
 		return false
 	}
 	// Claude Code 2.1.258 (@anthropic-ai/sdk 0.112.1), measured 2026-09-02 on the
@@ -347,8 +371,10 @@ func measuredClaudeCodeHelperBodyShape(payload []byte) claudeCodeHelperShape {
 	minimalKeys := []string{"model", "max_tokens", "messages", "metadata"}
 	structuredKeys := []string{"model", "messages", "system", "tools", "metadata", "max_tokens", "thinking", "temperature", "output_config", "stream"}
 	structuredTitle280Keys := []string{"model", "max_tokens", "messages", "metadata", "output_config"}
+	structuredTitle325Keys := []string{"model", "messages", "system", "tools", "metadata", "max_tokens", "output_config", "stream"}
 	shape := claudeCodeHelperShapeNone
 	isTitle280 := false
+	helperModel := claudeCodeHelperModel
 	switch {
 	case claudeJSONObjectHasKeys(payload, minimalKeys):
 		shape = claudeCodeHelperShapeMinimal
@@ -357,12 +383,15 @@ func measuredClaudeCodeHelperBodyShape(payload []byte) claudeCodeHelperShape {
 	case claudeJSONObjectHasKeys(payload, structuredTitle280Keys):
 		shape = claudeCodeHelperShapeTitle280
 		isTitle280 = true
+	case claudeJSONObjectHasKeys(payload, structuredTitle325Keys):
+		shape = claudeCodeHelperShapeTitle325
+		helperModel = claudeCodeTitle325HelperModel
 	default:
 		return claudeCodeHelperShapeNone
 	}
 
 	maxTokens := gjson.GetBytes(payload, "max_tokens")
-	if gjson.GetBytes(payload, "model").String() != claudeCodeHelperModel ||
+	if gjson.GetBytes(payload, "model").String() != helperModel ||
 		maxTokens.Type != gjson.Number {
 		return claudeCodeHelperShapeNone
 	}
@@ -414,11 +443,22 @@ func measuredClaudeCodeHelperBodyShape(payload []byte) claudeCodeHelperShape {
 	if tools := gjson.GetBytes(payload, "tools"); !tools.IsArray() || len(tools.Array()) != 0 {
 		return claudeCodeHelperShapeNone
 	}
-	thinking := gjson.GetBytes(payload, "thinking")
 	outputConfig := gjson.GetBytes(payload, "output_config")
-	if !claudeJSONObjectHasKeys([]byte(thinking.Raw), []string{"type"}) ||
-		thinking.Get("type").String() != "disabled" {
-		return claudeCodeHelperShapeNone
+	outputConfigKeys := []string{"format"}
+	if shape == claudeCodeHelperShapeTitle325 {
+		// 2.1.325 drops thinking and temperature, keeps the session effort in
+		// output_config, and raises max_tokens to the model's 128000.
+		outputConfigKeys = []string{"effort", "format"}
+		if maxTokens.Raw != "128000" ||
+			outputConfig.Get("effort").Type != gjson.String || outputConfig.Get("effort").String() == "" {
+			return claudeCodeHelperShapeNone
+		}
+	} else {
+		thinking := gjson.GetBytes(payload, "thinking")
+		if !claudeJSONObjectHasKeys([]byte(thinking.Raw), []string{"type"}) ||
+			thinking.Get("type").String() != "disabled" {
+			return claudeCodeHelperShapeNone
+		}
 	}
 	format := outputConfig.Get("format")
 	schema := format.Get("schema")
@@ -426,7 +466,7 @@ func measuredClaudeCodeHelperBodyShape(payload []byte) claudeCodeHelperShape {
 	titleProperty := properties.Get("title")
 	required := schema.Get("required")
 	additionalProperties := schema.Get("additionalProperties")
-	if !claudeJSONObjectHasKeys([]byte(outputConfig.Raw), []string{"format"}) ||
+	if !claudeJSONObjectHasKeys([]byte(outputConfig.Raw), outputConfigKeys) ||
 		!claudeJSONObjectHasKeys([]byte(format.Raw), []string{"type", "schema"}) ||
 		format.Get("type").String() != "json_schema" ||
 		!claudeJSONObjectHasKeys([]byte(schema.Raw), []string{"type", "properties", "required", "additionalProperties"}) ||
@@ -437,6 +477,12 @@ func measuredClaudeCodeHelperBodyShape(payload []byte) claudeCodeHelperShape {
 		!required.IsArray() || len(required.Array()) != 1 || required.Get("0").String() != "title" ||
 		additionalProperties.Type != gjson.False {
 		return claudeCodeHelperShapeNone
+	}
+	if gjson.GetBytes(payload, "stream").Type != gjson.True {
+		return claudeCodeHelperShapeNone
+	}
+	if shape == claudeCodeHelperShapeTitle325 {
+		return shape
 	}
 	temperature := gjson.GetBytes(payload, "temperature")
 	if maxTokens.Raw != "32000" ||
