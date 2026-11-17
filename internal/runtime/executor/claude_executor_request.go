@@ -438,7 +438,9 @@ func claudeRequestSupportsEffort(body []byte, requested map[string]bool) bool {
 			return false
 		}
 		model := claudeCanonicalModel(gjson.GetBytes(body, "model").String())
-		if isClaudeHaikuModel(model) && (strings.HasPrefix(model, "claude-3") || strings.HasPrefix(model, "claude-haiku-4")) {
+		// Contains rather than HasPrefix so provider-prefixed ids such as
+		// us.anthropic.claude-haiku-4-5-... match too.
+		if isClaudeHaikuModel(model) && (strings.Contains(model, "claude-3") || strings.Contains(model, "haiku-4")) {
 			return false
 		}
 		thinkingType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "thinking.type").String()))

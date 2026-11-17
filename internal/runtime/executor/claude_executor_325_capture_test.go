@@ -345,6 +345,20 @@ func TestClaudeCodeCLIBetas_PerTurnEffortCatalogModels(t *testing.T) {
 	}
 }
 
+// Pre-5 Haiku never gets effort-2025-11-24, including under a provider-prefixed
+// id; Haiku 5.5 under the same prefix still does.
+func TestClaudeRequestSupportsEffort_ProviderPrefixedHaiku(t *testing.T) {
+	for model, want := range map[string]bool{
+		"us.anthropic.claude-haiku-4-5-20251001-v1:0": false,
+		"us.anthropic.claude-haiku-5-5":               true,
+	} {
+		body := []byte(`{"model":"` + model + `","max_tokens":64,"messages":[{"role":"user","content":"hello"}]}`)
+		if got := claudeRequestSupportsEffort(body, nil); got != want {
+			t.Errorf("claudeRequestSupportsEffort(%s) = %t, want %t", model, got, want)
+		}
+	}
+}
+
 // A cloaked quota-probe-shaped body gets exactly the captured 2.1.325 quota
 // probe's betas: no tool-provenance and no thinking-token-count.
 func TestClaudeCodeCLIBetas_QuotaProbeMatches2_1_325Capture(t *testing.T) {
