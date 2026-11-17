@@ -1,7 +1,8 @@
 package helps
 
 import (
-	"strconv"
+	"bytes"
+	"encoding/json"
 	"strings"
 
 	"github.com/tidwall/gjson"
@@ -9,9 +10,8 @@ import (
 
 // Limits of Claude Code 2.1.325's x-claude-code-sandy-plover (tools used) header.
 const (
-	claudeToolsUsedMaxEntries   = 64
-	claudeToolsUsedMaxBytes     = 7168
-	claudeToolsUsedMaxNameBytes = 256
+	claudeToolsUsedMaxEntries = 64
+	claudeToolsUsedMaxBytes   = 7168
 )
 
 // claudeToolsUsedCoreTools are the built-in tools 2.1.325 lists after every
@@ -30,6 +30,12 @@ var claudeToolsUsedCoreTools = map[string]bool{
 	"ToolSearch":    true,
 	"EnterPlanMode": true,
 	"ExitPlanMode":  true,
+}
+
+// claudeToolsUsedRecord is one entry of the tools-used header.
+type claudeToolsUsedRecord struct {
+	Name string `json:"name"`
+	MCP  bool   `json:"mcp,omitempty"`
 }
 
 // ClaudeToolsUsedHeaderValue rebuilds 2.1.325's x-claude-code-sandy-plover
@@ -55,7 +61,7 @@ func ClaudeToolsUsedHeaderValue(body []byte) string {
 				return true
 			}
 			name := block.Get("name").String()
-			if name == "" || len(name) > claudeToolsUsedMaxNameBytes || seen[name] {
+			if name == "" || seen[name] {
 				return true
 			}
 			seen[name] = true
@@ -77,74 +83,34 @@ func ClaudeToolsUsedHeaderValue(body []byte) string {
 		}
 	}
 
-	var b strings.Builder
-	b.WriteByte('[')
-	size, count := 2, 0
+	records := make([]claudeToolsUsedRecord, 0, len(ordered))
+	size := len("[]")
 	for _, name := range ordered {
-		if count == claudeToolsUsedMaxEntries {
+		if len(records) == claudeToolsUsedMaxEntries {
 			break
 		}
-		record := `{"name":` + claudeToolsUsedJSONString(name)
-		if strings.HasPrefix(name, "mcp__") {
-			record += `,"mcp":true`
-		}
-		record += "}"
-		added := len(record)
-		if count > 0 {
+		record := claudeToolsUsedRecord{Name: name, MCP: strings.HasPrefix(name, "mcp__")}
+		added := len(encodeClaudeToolsUsedJSON(record))
+		if len(records) > 0 {
 			added++
 		}
 		if size+added > claudeToolsUsedMaxBytes {
 			break
 		}
-		if count > 0 {
-			b.WriteByte(',')
-		}
-		b.WriteString(record)
+		records = append(records, record)
 		size += added
-		count++
 	}
-	b.WriteByte(']')
-	return b.String()
+	return encodeClaudeToolsUsedJSON(records)
 }
 
-// claudeToolsUsedJSONString encodes s like JSON.stringify followed by Claude
-// Code's escape of every UTF-16 code unit from U+007F up, which keeps the
-// header value ASCII.
-func claudeToolsUsedJSONString(s string) string {
-	var b strings.Builder
-	b.WriteByte('"')
-	writeUnit := func(unit rune) {
-		hex := strconv.FormatInt(int64(unit), 16)
-		b.WriteString(`\u`)
-		b.WriteString(strings.Repeat("0", 4-len(hex)))
-		b.WriteString(hex)
+// encodeClaudeToolsUsedJSON marshals v like JSON.stringify: compact and
+// without Go's HTML escaping.
+func encodeClaudeToolsUsedJSON(v any) string {
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	if errEncode := encoder.Encode(v); errEncode != nil {
+		return "[]"
 	}
-	for _, r := range s {
-		switch {
-		case r == '"':
-			b.WriteString(`\"`)
-		case r == '\\':
-			b.WriteString(`\\`)
-		case r == '\b':
-			b.WriteString(`\b`)
-		case r == '\f':
-			b.WriteString(`\f`)
-		case r == '\n':
-			b.WriteString(`\n`)
-		case r == '\r':
-			b.WriteString(`\r`)
-		case r == '\t':
-			b.WriteString(`\t`)
-		case r < 0x20 || (r >= 0x7f && r <= 0xffff):
-			writeUnit(r)
-		case r > 0xffff:
-			r -= 0x10000
-			writeUnit(0xd800 + (r >> 10))
-			writeUnit(0xdc00 + (r & 0x3ff))
-		default:
-			b.WriteRune(r)
-		}
-	}
-	b.WriteByte('"')
-	return b.String()
+	return strings.TrimSuffix(buf.String(), "\n")
 }

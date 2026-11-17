@@ -29,9 +29,9 @@ func TestClaudeToolsUsedHeaderValue(t *testing.T) {
 			want: `[{"name":"Skill"},{"name":"mcp__docs__search","mcp":true},{"name":"Read"}]`,
 		},
 		{
-			name: "non-ASCII names are escaped like JSON.stringify plus the u007f filter",
-			body: `{"messages":[{"role":"assistant","content":[{"type":"tool_use","name":"té\"😀"}]}]}`,
-			want: `[{"name":"t\u00e9\"\ud83d\ude00"}]`,
+			name: "no HTML escaping",
+			body: `{"messages":[{"role":"assistant","content":[{"type":"tool_use","name":"a<b>&c"}]}]}`,
+			want: `[{"name":"a<b>&c"}]`,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
