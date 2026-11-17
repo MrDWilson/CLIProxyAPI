@@ -267,3 +267,26 @@ func TestApplyClaudeCodeGatewayHints_SubagentCarriesBillingPromptID(t *testing.T
 		t.Fatalf("%s = %q, want none without a billing cc_prompt_id", claudePromptIDHeader, got)
 	}
 }
+
+// 2.1.325 Haiku side requests (the quota probe on claude-haiku-4-5 and the
+// session-title helper on claude-haiku-5-5) carry no claude-code-20250219;
+// only an agentic Haiku query gets it in the Haiku slot.
+func TestClaudeCodeCLIBetas_HaikuProbesAndHelpersOmitClaudeCodeBeta(t *testing.T) {
+	const titleSchema = `"output_config":{"effort":"medium","format":{"type":"json_schema","schema":{"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}}}`
+	for _, tt := range []struct {
+		name string
+		body string
+		want bool
+	}{
+		{name: "quota probe", body: `{"model":"claude-haiku-4-5-20251001","max_tokens":1,"messages":[{"role":"user","content":"quota"}]}`},
+		{name: "title helper", body: `{"model":"claude-haiku-5-5","messages":[{"role":"user","content":[{"type":"text","text":"<session>placeholder</session>"}]}],"system":[{"type":"text","text":"Return a short title."}],"tools":[],"max_tokens":128000,` + titleSchema + `,"stream":true}`},
+		{name: "agentic query", body: `{"model":"claude-haiku-5-5","max_tokens":64,"messages":[{"role":"user","content":"hello"}]}`, want: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got := claudeCodeCLIBetas([]byte(tt.body), nil, true)
+			if has := strings.Contains(got, claudeCodeBeta); has != tt.want {
+				t.Fatalf("claude-code beta present = %t, want %t: %s", has, tt.want, got)
+			}
+		})
+	}
+}

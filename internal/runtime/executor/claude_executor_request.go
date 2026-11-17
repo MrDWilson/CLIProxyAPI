@@ -154,7 +154,8 @@ func isManagedClaudeBeta(beta string) bool {
 //	       context-management-2025-06-27
 //	       prompt-caching-scope-2026-01-05   first-party base URL (see below)
 //	       program-use-case-ids-2026-09-17   program_use_case_id body, or requested
-//	       claude-code-20250219              haiku models: agentic queries add it here
+//	       claude-code-20250219              haiku models: agentic queries add it here,
+//	                                         probes and helpers do not
 //	model  per-turn-control-2026-07-01       opus-5-5 and fable-5-1, or requested
 //	       timing-2026-09-09                 per-turn timing body, or requested
 //	       mid-conversation-tool-changes-2026-07-01  role=system models except sonnet-5
@@ -214,7 +215,7 @@ func claudeCodeCLIBetas(body []byte, requested map[string]bool, oauthToken bool)
 	add(true, claudeContextManagementBeta)
 	add(true, claudePromptCachingScopeBeta)
 	add(requested[claudeProgramUseCaseIDsBeta] || gjson.GetBytes(body, "program_use_case_id").Exists(), claudeProgramUseCaseIDsBeta)
-	add(haiku, claudeCodeBeta)
+	add(haiku && !isProbeOrHelper, claudeCodeBeta)
 
 	add(claudeIncludePerTurnControl(body, requested), claudePerTurnControlBeta)
 	add(claudeIncludePerTurnTiming(body, requested), claudePerTurnTimingBeta)
