@@ -485,9 +485,7 @@ func measuredClaudeCodeHelperBodyShape(payload []byte) claudeCodeHelperShape {
 		return shape
 	}
 	temperature := gjson.GetBytes(payload, "temperature")
-	if maxTokens.Raw != "32000" ||
-		temperature.Raw != "1" ||
-		gjson.GetBytes(payload, "stream").Type != gjson.True {
+	if maxTokens.Raw != "32000" || temperature.Raw != "1" {
 		return claudeCodeHelperShapeNone
 	}
 	return shape
