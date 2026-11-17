@@ -210,19 +210,30 @@ func generateBillingHeader(cchSigning bool, version, messageText, entrypoint, wo
 }
 
 // claudeBillingTurnIndex derives 2.1.325's transcript-relative turn position
-// from the request itself rather than process state: each user message that
-// carries new input opens a turn, while a user message holding tool_result
-// blocks continues the turn whose tool call it answers, so a tool loop keeps
-// its position. Claude Code numbers a conversation's first human turn 1.
+// from the request itself rather than process state. A turn opens at the first
+// user message and at each user message that follows an assistant message, so
+// a run of consecutive user messages is one turn; role=system messages between
+// them do not split or open a turn. A user message holding tool_result blocks
+// continues the turn whose tool call it answers, so a tool loop keeps its
+// position. Claude Code numbers a conversation's first human turn 1.
 func claudeBillingTurnIndex(payload []byte) int {
 	turns := 0
+	previousRole := ""
 	gjson.GetBytes(payload, "messages").ForEach(func(_, message gjson.Result) bool {
-		if message.Get("role").String() != "user" {
+		role := message.Get("role").String()
+		if role != "user" {
+			if role == "assistant" {
+				previousRole = role
+			}
 			return true
 		}
-		content := message.Get("content")
+		followsUser := previousRole == "user"
+		previousRole = role
+		if followsUser {
+			return true
+		}
 		continuation := false
-		if content.IsArray() {
+		if content := message.Get("content"); content.IsArray() {
 			content.ForEach(func(_, block gjson.Result) bool {
 				if block.Get("type").String() == "tool_result" {
 					continuation = true

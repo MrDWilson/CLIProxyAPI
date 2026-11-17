@@ -3,6 +3,8 @@ package executor
 import (
 	"strings"
 	"testing"
+
+	"github.com/tidwall/gjson"
 )
 
 func TestClaudeBillingTurnIndexCountsInputTurnsNotToolLoops(t *testing.T) {
@@ -19,6 +21,16 @@ func TestClaudeBillingTurnIndexCountsInputTurnsNotToolLoops(t *testing.T) {
 			name: "role=system turns are not input",
 			body: `{"messages":[{"role":"user","content":[{"type":"text","text":"hi"}]},{"role":"system","content":[{"type":"text","text":"x"}]}]}`,
 			want: 1,
+		},
+		{
+			name: "consecutive leading user messages are one turn",
+			body: `{"messages":[{"role":"user","content":"context"},{"role":"user","content":[{"type":"text","text":"hi"}]}]}`,
+			want: 1,
+		},
+		{
+			name: "consecutive user messages after a reply are one turn",
+			body: `{"messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"ok"},{"role":"user","content":"a"},{"role":"system","content":"x"},{"role":"user","content":"b"}]}`,
+			want: 2,
 		},
 		{
 			name: "tool loop keeps the position",
@@ -67,5 +79,19 @@ func TestGenerateBillingHeaderMatches2_1_325FieldOrder(t *testing.T) {
 		if strings.Contains(tt.header, "cc_prompt_index") || strings.Contains(tt.header, "cc_turn_index") {
 			t.Errorf("%s: unexpected turn position in %q", tt.name, tt.header)
 		}
+	}
+}
+
+// cc_prompt_index and cc_turn_index share the turn count, so two leading user
+// messages put both at 1, not 2.
+func TestClaudeBillingHeaderCountsLeadingUserRunOnce(t *testing.T) {
+	t.Parallel()
+
+	const promptID = "00000000-0000-4000-8000-000000000001"
+	body := []byte(`{"model":"claude-opus-5-5","messages":[{"role":"user","content":"context"},{"role":"user","content":"hi"}]}`)
+	out := checkSystemInstructionsWithSigningModeAt(body, false, true, "2.1.325", "cli", "", "2026-01-01", false, "", promptID, false, "human")
+	billing := gjson.GetBytes(out, "system.0.text").String()
+	if !strings.HasSuffix(billing, "; cc_turn_origin=human; cc_prompt_index=1; cc_turn_index=1;") {
+		t.Fatalf("billing header = %q, want prompt and turn index 1", billing)
 	}
 }
