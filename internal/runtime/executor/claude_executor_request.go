@@ -289,8 +289,6 @@ func claudeCanonicalModel(model string) string {
 	return model
 }
 
-// claudeModelHasPerTurnEffort reports models whose 2.1.280 catalog capability
-// per_turn_effort puts per-turn-control-2026-07-01 on every first-party request.
 func isClaudeOpus55Model(model string) bool {
 	model = claudeCanonicalModel(model)
 	return model == "claude-opus-5-5" || strings.HasPrefix(model, "claude-opus-5-5[")
@@ -428,10 +426,12 @@ func claudeIncludeMidConvClearAt(body []byte, requested map[string]bool) bool {
 	return found
 }
 
-// claudeRequestSupportsEffort follows 2.1.325's effort capability check: the
-// quota probe never carries effort-2025-11-24, and among Haiku models only those
-// newer than Haiku 4.5 (Haiku 5.5 lists effort) support it. Other helpers, such
-// as the session-title helper, carry it like any request on their model.
+// claudeRequestSupportsEffort implements part of 2.1.325's effort capability
+// check: the quota probe never carries effort-2025-11-24, and among Haiku
+// models only those newer than Haiku 4.5 (Haiku 5.5 lists effort) support it.
+// Other helpers, such as the session-title helper, carry it like any request
+// on their model. Refusing effort when thinking is disabled is CPA behaviour
+// kept from before; the bundle's check ignores thinking.
 func claudeRequestSupportsEffort(body []byte, requested map[string]bool) bool {
 	if len(body) > 0 {
 		if helps.IsClaudeProbeRequest(body) {
