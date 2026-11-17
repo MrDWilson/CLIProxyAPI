@@ -290,3 +290,31 @@ func TestClaudeCodeCLIBetas_HaikuProbesAndHelpersOmitClaudeCodeBeta(t *testing.T
 		})
 	}
 }
+
+// 2.1.325 gives Haiku 5.5 the per-turn-control, clear-at and effort betas (its
+// catalog lists effort and per_turn_effort), so a cloaked title-helper-shaped
+// body carries them; the quota probe on claude-haiku-4-5 carries none.
+func TestClaudeCodeCLIBetas_Haiku55TitleHelperGates(t *testing.T) {
+	const titleSchema = `"output_config":{"effort":"medium","format":{"type":"json_schema","schema":{"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}}}`
+	title := `{"model":"claude-haiku-5-5","messages":[{"role":"user","content":[{"type":"text","text":"<session>placeholder</session>"}]}],"system":[{"type":"text","text":"Return a short title."}],"tools":[],"max_tokens":128000,` + titleSchema + `,"stream":true}`
+	// The captured helper also sends claude-code-side-query and cache-diagnosis,
+	// which the cloak only adds when the caller asks for them.
+	const wantTitle = "oauth-2025-04-20,interleaved-thinking-2025-05-14,redact-thinking-2026-02-12," +
+		"context-management-2025-06-27,prompt-caching-scope-2026-01-05,per-turn-control-2026-07-01," +
+		"mid-conversation-tool-changes-2026-07-01,tool-provenance-2026-10-26,thinking-token-count-2026-05-13," +
+		"mid-conversation-system-clear-at-2026-08-21,effort-2025-11-24,structured-outputs-2025-12-15"
+	if got := claudeCodeCLIBetas([]byte(title), nil, true); got != wantTitle {
+		t.Fatalf("title helper betas =\n%s\nwant\n%s", got, wantTitle)
+	}
+
+	probe := `{"model":"claude-haiku-4-5-20251001","max_tokens":1,"messages":[{"role":"user","content":"quota"}]}`
+	got := claudeCodeCLIBetas([]byte(probe), nil, true)
+	for _, beta := range []string{claudePerTurnControlBeta, claudeMidConvSystemClearAtBeta, claudeEffortBeta} {
+		if strings.Contains(got, beta) {
+			t.Errorf("quota probe betas = %s, want no %s", got, beta)
+		}
+	}
+	if claudeIncludePerTurnTiming([]byte(`{"model":"claude-haiku-5-5","output_config":{"timing":{}}}`), nil) {
+		t.Error("claude-haiku-5-5 got timing-2026-09-09; its catalog entry lacks per_turn_timing")
+	}
+}

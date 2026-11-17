@@ -494,6 +494,12 @@ func isClaudeTitleHelperRequest(body []byte) bool {
 	return false
 }
 
+// IsClaudeProbeRequest reports whether the request is a minimal probe or
+// preflight (max_tokens: 1), such as Claude Code's quota probe.
+func IsClaudeProbeRequest(body []byte) bool {
+	return isClaudeProbeRequest(body)
+}
+
 // IsClaudeProbeOrHelperRequest reports whether the request is a minimal
 // probe/preflight (max_tokens: 1) or an automated title generation helper,
 // which in native Claude Code do not emit cc_prompt_id or cc_prev_req.

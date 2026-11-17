@@ -331,8 +331,17 @@ func applyClaudeCloakThinkingDisplay(body []byte, callerOwned bool) []byte {
 	return body
 }
 
+// claudeModelHasPerTurnEffort reports models whose 2.1.325 catalog lists
+// per_turn_effort, which puts per-turn-control-2026-07-01 on their requests.
 func claudeModelHasPerTurnEffort(model string) bool {
-	return isClaudeOpus55Model(model) || strings.HasPrefix(claudeCanonicalModel(model), "claude-fable-5-1")
+	return isClaudeOpus55Model(model) || strings.HasPrefix(claudeCanonicalModel(model), "claude-fable-5-1") || isClaudeHaiku55Model(model)
+}
+
+// isClaudeHaiku55Model reports Haiku 5.5, whose 2.1.325 catalog entry lists
+// effort and per_turn_effort but not per_turn_timing.
+func isClaudeHaiku55Model(model string) bool {
+	model = claudeCanonicalModel(model)
+	return model == "claude-haiku-5-5" || strings.HasPrefix(model, "claude-haiku-5-5-") || strings.HasPrefix(model, "claude-haiku-5-5[")
 }
 
 // claudeModelHasPerTurnTiming reports models whose catalog lists per_turn_timing.
@@ -340,7 +349,7 @@ func claudeModelHasPerTurnEffort(model string) bool {
 // is set, so the beta follows the body or an explicit caller request.
 func claudeModelHasPerTurnTiming(model string) bool {
 	model = claudeCanonicalModel(model)
-	return claudeModelHasPerTurnEffort(model) || strings.HasPrefix(model, "claude-mythos-5-1")
+	return (claudeModelHasPerTurnEffort(model) && !isClaudeHaiku55Model(model)) || strings.HasPrefix(model, "claude-mythos-5-1")
 }
 
 func claudeIncludePerTurnControl(body []byte, requested map[string]bool) bool {
@@ -390,7 +399,10 @@ func claudeIncludeInlineTools(body []byte, requested map[string]bool) bool {
 }
 
 func claudeIncludeMidConvClearAt(body []byte, requested map[string]bool) bool {
-	if requested[claudeMidConvSystemClearAtBeta] || claudeModelUsesProgressDisplay(gjson.GetBytes(body, "model").String()) {
+	// 2.1.325 decides clear-at per model from server-served flags; the
+	// captures show it on Opus 5.5 main turns and the Haiku 5.5 title helper.
+	model := gjson.GetBytes(body, "model").String()
+	if requested[claudeMidConvSystemClearAtBeta] || claudeModelUsesProgressDisplay(model) || isClaudeHaiku55Model(model) {
 		return true
 	}
 	found := false
@@ -404,13 +416,17 @@ func claudeIncludeMidConvClearAt(body []byte, requested map[string]bool) bool {
 	return found
 }
 
+// claudeRequestSupportsEffort follows 2.1.325's effort capability check: the
+// quota probe never carries effort-2025-11-24, and among Haiku models only those
+// newer than Haiku 4.5 (Haiku 5.5 lists effort) support it. Other helpers, such
+// as the session-title helper, carry it like any request on their model.
 func claudeRequestSupportsEffort(body []byte, requested map[string]bool) bool {
 	if len(body) > 0 {
-		if helps.IsClaudeProbeOrHelperRequest(body) {
+		if helps.IsClaudeProbeRequest(body) {
 			return false
 		}
-		model := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "model").String()))
-		if isClaudeHaikuModel(model) {
+		model := claudeCanonicalModel(gjson.GetBytes(body, "model").String())
+		if isClaudeHaikuModel(model) && (strings.HasPrefix(model, "claude-3") || strings.HasPrefix(model, "claude-haiku-4")) {
 			return false
 		}
 		thinkingType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "thinking.type").String()))
